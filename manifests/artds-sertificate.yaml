@@ -1,0 +1,38 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: artds
+  labels:
+    app.kubernetes.io/name: &name artds
+    app.kubernetes.io/instance: &instance 389ds
+    app.kubernetes.io/version: &version v3.1
+spec:
+  secretName: artds-tls
+  duration: 9125h # 1y
+  renewBefore: 360h # 15d
+  subject:
+    organizations:
+    - home dev lab
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 4096
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+  - artds-0.artds-headless.artds.svc.cluster.local
+  - artds-0.artds-headless.artds.svc
+  - artds-0.artds-headless.artds
+  - artds-0.artds-headless
+  - artds-1.artds-headless.artds.svc.cluster.local
+  - artds-1.artds-headless.artds.svc
+  - artds-1.artds-headless.artds
+  - artds-1.artds-headless
+  - localhost
+  issuerRef:
+    name: dev-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

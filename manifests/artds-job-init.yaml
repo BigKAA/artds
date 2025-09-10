@@ -1,0 +1,48 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: artds-init
+  labels:
+    app.kubernetes.io/name: artds
+    app.kubernetes.io/instance: 389ds
+    app.kubernetes.io/version: v3.1
+spec:
+  template:
+    spec:
+      serviceAccountName: artds-init-sa
+      restartPolicy: Never
+      volumes:
+        - name: init-script
+          configMap:
+            name: artds-job-init
+      containers:
+      - name: ds
+        image: 389ds/dirsrv:3.1
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        env:
+          - name: DS_SUFFIX_NAME
+            value: "dc=system,dc=local"
+          - name: DS_HL_SVC_NAME
+            value: "artds-headless"
+          - name: DS_POD_NAME
+            value: "artds"
+          - name: DS_SVC_PORT
+            value: "3389"
+          - name: NUMBER_OF_REPLICAS
+            value: "2"
+        envFrom:
+          - secretRef:
+              name: artds
+        command: [ '/bin/bash', '/usr/local/bin/init-config.sh' ]
+        volumeMounts:
+          - name: init-script
+            mountPath: '/usr/local/bin/init-config.sh'
+            subPath: init-config.sh
+            readOnly: true

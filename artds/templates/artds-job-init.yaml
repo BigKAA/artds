@@ -1,0 +1,51 @@
+{{- if .Values.jobs.init.enable }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "artds.fullname" . }}-init
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ include "artds.fullname" . }}-init-sa
+      restartPolicy: Never
+      volumes:
+        - name: init-script
+          configMap:
+            name: {{ include "artds.fullname" . }}-job-init
+      containers:
+      - name: init
+        image: {{ .Values.jobs.init.image.repository }}:{{ .Values.jobs.init.image.tag }}
+        imagePullPolicy: {{ .Values.jobs.init.image.pullPolicy }}
+        {{- with .Values.jobs.init.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+          - name: DS_SUFFIX_NAME
+            value: {{ .Values.ds.suffix | quote }}
+          - name: DS_HL_SVC_NAME
+            value: "{{ include "artds.fullname" . }}-headless"
+          - name: DS_POD_NAME
+            value: "{{ include "artds.fullname" . }}"
+          - name: DS_SVC_PORT
+            # value: {{ .Values.services.main.port | quote}}
+            value: "3389"
+          - name: NUMBER_OF_REPLICAS
+            value: {{ .Values.replicaCount | quote }}
+        envFrom:
+          - secretRef:
+              {{- if .Values.ds.adminSecretName }}
+              name: {{ .Values.ds.adminSecretName }}
+              {{- else }}
+              name: {{ include "artds.fullname" . }}
+              {{- end }}
+        command: [ '/bin/bash', '/usr/local/bin/init-config.sh' ]
+        volumeMounts:
+          - name: init-script
+            mountPath: '/usr/local/bin/init-config.sh'
+            subPath: init-config.sh
+            readOnly: true
+{{- end }}

@@ -1,0 +1,23 @@
+{{- if and .Values.ssl.enable (not .Values.ssl.secretName) }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "artds.fullname" . }}
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "artds.fullname" . }}-tls
+  {{- toYaml .Values.ssl.certManager | nindent 2}}
+  dnsNames:
+    - {{ include "artds.fullname" . }}-0.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+    - {{ include "artds.fullname" . }}-0.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}.svc
+    - {{ include "artds.fullname" . }}-0.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}
+    - {{ include "artds.fullname" . }}-0.{{ include "artds.fullname" . }}-headless
+    {{- if eq (int .Values.replicaCount) 2 }}
+    - {{ include "artds.fullname" . }}-1.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+    - {{ include "artds.fullname" . }}-1.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}.svc
+    - {{ include "artds.fullname" . }}-1.{{ include "artds.fullname" . }}-headless.{{ .Release.Namespace }}
+    - {{ include "artds.fullname" . }}-1.{{ include "artds.fullname" . }}-headless
+    {{- end }}
+    - localhost
+{{- end }}

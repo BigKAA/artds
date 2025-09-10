@@ -1,0 +1,178 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "artds.fullname" . }}
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "artds.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "artds.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        {{- include "artds.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      initContainers:
+      - name: init-container
+        image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+        imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+        {{- with .Values.imagePullSecrets }}
+        imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        command: ["sh", "-c"]
+        args:
+          - |
+            NUM=$(echo $POD_NAME | cut -f2 -d'-')
+            if [ $NUM -gt 1 ]; then
+              echo "number of replicas must be 1 or 2"
+              exit 1
+            fi
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          # Метка генерируется автоматически. Может не работать в ранних версиях кубера. 
+          # - name: POD_INDEX
+          #   valueFrom:
+          #     fieldRef:
+          #       apiVersion: v1
+          #       fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+      containers:
+        - name: dirsrv
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            ## Use suffix as a basedn in `dsrc` file
+            - name: DS_SUFFIX_NAME
+              value: {{ .Values.ds.suffix | quote }}
+            {{- if .Values.ds.errorLogLevel }}
+            - name: DS_ERRORLOG_LEVEL
+              value: {{ .Values.ds.errorLogLevel | quote }}
+            {{- end }}
+            {{- if .Values.ds.autotunePercentage }}
+            - name: DS_MEMORY_PERCENTAGE
+             value: {{ .Values.ds.autotunePercentage | quote }}
+            {{- end }}
+            {{- if .Values.ds.reindex }}
+            - name: DS_REINDEX
+              value: "True"
+            {{- end }}
+          envFrom:
+            - secretRef:
+                {{- if .Values.ds.adminSecretName }}
+                name: {{ .Values.ds.adminSecretName }}
+                {{- else }}
+                name: {{ include "artds.fullname" . }}
+                {{- end }}
+          ports:
+            - name: ldap-tcp
+              containerPort: 3389
+              protocol: TCP
+            - name: ldaps-tcp
+              containerPort: 3636
+              protocol: TCP
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: ds-data
+              mountPath: /data
+            {{- if .Values.ssl.enable }}
+            - name: dirsrv-tls
+              mountPath: '/data/tls/'
+              readOnly: true
+            - name: dirsrv-tls-ca
+              mountPath: '/data/tls/ca'
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: ds389-config
+        {{- if .Values.ssl.enable }}
+        - name: dirsrv-tls
+          secret:
+            {{- if .Values.ssl.secretName }}
+            secretName: {{ .Values.ssl.secretName }}
+            {{- else }}
+            secretName: {{ include "artds.fullname" . }}-tls
+            {{- end }}
+            items:
+            - key: tls.key
+              path: server.key
+            - key: tls.crt
+              path: server.crt
+        - name: dirsrv-tls-ca
+          secret:
+            {{- if .Values.ssl.secretName }}
+            secretName: {{ .Values.ssl.secretName }}
+            {{- else }}
+            secretName: {{ include "artds.fullname" . }}-tls
+            {{- end }}
+            items:
+            - key: ca.crt
+              path: ca.crt
+        {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - {{ include "artds.name" . }}
+            topologyKey: "kubernetes.io/hostname"
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/version
+                operator: In
+                values:
+                - {{ .Chart.AppVersion | quote }}
+            topologyKey: "kubernetes.io/hostname"
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                - {{ .Release.Name }}
+            topologyKey: "kubernetes.io/hostname"
+  volumeClaimTemplates:
+  - metadata:
+      name: ds-data
+      labels:
+        {{- include "artds.labels" . | nindent 8 }}
+    spec:
+      accessModes: 
+        - {{ .Values.persistence.accessMode }}
+      {{- if .Values.persistence.storageClassName }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.storageSize }}

@@ -1,0 +1,16 @@
+1. Get the DS URL by running these commands:
+{{- if contains "NodePort" .Values.services.main.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "artds.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo ldap://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.services.main.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch its status by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "artds.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "artds.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo ldap://$SERVICE_IP:{{ .Values.services.main.port }}
+{{- else if contains "ClusterIP" .Values.services.main.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "artds.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit ldap://127.0.0.1:3389 to use DS"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 3389:$CONTAINER_PORT
+{{- end }}

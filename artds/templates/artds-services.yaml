@@ -1,0 +1,130 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "artds.fullname" . }}
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+  {{- with .Values.services.main.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.services.main.type }}
+  selector:
+    {{- include "artds.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.main.port }}
+      {{- if .Values.services.main.name }}
+      name: {{ .Values.services.main.name }}
+      {{- end }}
+      targetPort: ldap-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.main.type "NodePort") .Values.services.main.nodePort }}
+      nodePort: {{ .Values.services.main.nodePort }}
+      {{- end }}
+    - port: {{ .Values.services.main.sslport }}
+      {{- if .Values.services.main.sslname }}
+      name: {{ .Values.services.main.sslname }}
+      {{- end }}
+      targetPort: ldaps-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.main.type "NodePort") .Values.services.main.sslNodePort }}
+      nodePort: {{ .Values.services.main.sslNodePort }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "artds.fullname" . }}-headless
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "artds.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.main.port }}
+      {{- if .Values.services.main.name }}
+      name: {{ .Values.services.main.name }}
+      {{- end }}
+      targetPort: ldap-tcp
+      protocol: TCP
+    - port: {{ .Values.services.main.sslport }}
+      {{- if .Values.services.main.sslname }}
+      name: {{ .Values.services.main.sslname }}
+      {{- end }}
+      targetPort: ldaps-tcp
+      protocol: TCP
+{{-  if and .Values.services.servicePerPod.enable ( eq (int .Values.replicaCount) 2)}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "artds.fullname" . }}-0
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+    statefulset.kubernetes.io/pod-name: {{ include "artds.fullname" . }}-0
+  {{- with .Values.services.servicePerPod.pod0.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.services.servicePerPod.pod0.type }}
+  selector:
+    {{- include "artds.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.servicePerPod.pod0.port }}
+      {{- if .Values.services.servicePerPod.pod0.name }}
+      name: {{ .Values.services.servicePerPod.pod0.name }}
+      {{- end }}
+      targetPort: ldap-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.servicePerPod.pod0.type "NodePort") .Values.services.servicePerPod.pod0.nodePort }}
+      nodePort: {{ .Values.services.servicePerPod.pod0.nodePort }}
+      {{- end }}
+    - port: {{ .Values.services.servicePerPod.pod0.sslport }}
+      {{- if .Values.services.servicePerPod.pod0.sslname }}
+      name: {{ .Values.services.servicePerPod.pod0.sslname }}
+      {{- end }}
+      targetPort: ldaps-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.servicePerPod.pod0.type "NodePort") .Values.services.servicePerPod.pod0.sslNodePort }}
+      nodePort: {{ .Values.services.servicePerPod.pod0.sslNodePort }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "artds.fullname" . }}-1
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+    statefulset.kubernetes.io/pod-name: {{ include "artds.fullname" . }}-0
+  {{- with .Values.services.servicePerPod.pod1.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.services.servicePerPod.pod1.type }}
+  selector:
+    {{- include "artds.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.servicePerPod.pod1.port }}
+      {{- if .Values.services.servicePerPod.pod1.name }}
+      name: {{ .Values.services.servicePerPod.pod1.name }}
+      {{- end }}
+      targetPort: ldap-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.servicePerPod.pod1.type "NodePort") .Values.services.servicePerPod.pod1.nodePort }}
+      nodePort: {{ .Values.services.servicePerPod.pod1.nodePort }}
+      {{- end }}
+    - port: {{ .Values.services.servicePerPod.pod1.sslport }}
+      {{- if .Values.services.servicePerPod.pod1.sslname }}
+      name: {{ .Values.services.servicePerPod.pod1.sslname }}
+      {{- end }}
+      targetPort: ldaps-tcp
+      protocol: TCP
+      {{- if and (eq .Values.services.servicePerPod.pod1.type "NodePort") .Values.services.servicePerPod.pod1.sslNodePort }}
+      nodePort: {{ .Values.services.servicePerPod.pod1.sslNodePort }}
+      {{- end }}
+{{- end }}
