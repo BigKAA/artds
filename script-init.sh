@@ -17,7 +17,7 @@ for I in $(seq 0 $PODS_COUNT); do
     until dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" backend suffix list > /dev/null 2>&1; do
         sleep 1
         TRIALS=$(( TRIALS + 1 ))
-        if [ $TRIALS -gt 60 ]; then logMsg ERROR "Giving up" && exit 1; fi
+        if [ $TRIALS -gt {{ .Values.jobs.init.initialWaitSeconds }} ]; then logMsg ERROR "Giving up" && exit 1; fi
     done
     logMsg INFO "Connect to ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
     if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" backend suffix list --suffix | grep -Fwq "${DS_SUFFIX_NAME}"; then
@@ -43,30 +43,38 @@ if [ $PODS_COUNT -gt 0 ]; then
             if [ $I == 0 ]; then
                 dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
                     replication enable --suffix="${DS_SUFFIX_NAME}" --role="supplier" --replica-id=$((I + 1)) \
-                    --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}" > /dev/null 2>&1
-                
+                    --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}"                     
                 dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
                     repl-agmt create --suffix="${DS_SUFFIX_NAME}" --host="${DS_POD_NAME}-1.${DS_HL_SVC_NAME}" --port=${DS_SVC_PORT} \
                     --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}" \
-                    --bind-method=SIMPLE --init meTo1 > /dev/null 2>&1
+                    --bind-method=SIMPLE --init meTo1
             else
                 dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
                     replication enable --suffix="${DS_SUFFIX_NAME}" --role="supplier" --replica-id=$((I + 1)) \
-                    --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}" > /dev/null 2>&1
+                    --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}"
                 
                 dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
                     repl-agmt create --suffix="${DS_SUFFIX_NAME}" --host="${DS_POD_NAME}-0.${DS_HL_SVC_NAME}" --port=${DS_SVC_PORT} \
                     --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="${DS_REPL_PASSWORD}" \
-                    --bind-method=SIMPLE --init meTo0 > /dev/null 2>&1
+                    --bind-method=SIMPLE meTo0
             fi
         fi
     done
 fi
 
+{{- if .Values.jobs.infra.enable}}
+# TODO: добавить контроль наличия ACI
+ldapmodify -c -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" \
+-w "${DS_DM_PASSWORD}" -f /etc/openldap/init/init-config-modify.ldiff
+ldapadd -c -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" \
+-w "${DS_DM_PASSWORD}" -f /etc/openldap/init/init-config.ldiff
+{{- end }}
+
 # Если плагин не включен, включаем плагины и рестартуем поды
 PLUGIN_CHANGE=false
 for I in $(seq 0 $PODS_COUNT); do
     if ldapsearch -H "ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}" -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" -b 'cn=plugins,cn=config' | grep -A10 'dn: cn=MemberOf Plugin,cn=plugins,cn=config' | grep 'nsslapd-pluginEnabled: off' > /dev/null 2>&1 ; then
+
         # Enable plugins
         logMsg INFO "Enable plugins at: ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
         ldapmodify -H ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" > /dev/null 2>&1 << EOF
@@ -89,23 +97,24 @@ EOF
 done
 
 if [ $PLUGIN_CHANGE == "true" ]; then
+    sleep 20
     logMsg INFO "Restart pods after change plugins"
     APISERVER=https://kubernetes.default.svc
     SERVICEACCOUNT=/var/run/secrets/kubernetes.io/serviceaccount
     NAMESPACE=$(cat ${SERVICEACCOUNT}/namespace)
     TOKEN=$(cat ${SERVICEACCOUNT}/token)
     CACERT=${SERVICEACCOUNT}/ca.crt
-    curl -s --location --cacert ${CACERT} --request PATCH "${APISERVER}/apis/apps/v1/namespaces/${NAMESPACE}/statefulsets/artds" \
+    curl -s --location --cacert ${CACERT} --request PATCH "${APISERVER}/apis/apps/v1/namespaces/${NAMESPACE}/statefulsets/{{ include "artds.fullname" . }}" \
     -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/strategic-merge-patch+json" \
     --data '{
         "spec": {
-          "template": {
-              "metadata": {
-                  "annotations": {
-                      "kubectl.kubernetes.io/restartedAt": "'$(date +%Y-%m-%dT%T)'"
-                  }
-              }
-          }
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/restartedAt": "'$(date +%Y-%m-%dT%T)'"
+                }
+            }
+        }
         }
     }' > /dev/null
 fi

@@ -1,6 +1,8 @@
 # artds
 
- 389ds helm chart.
+**Under construction!!!**
+
+389ds helm chart.
 
 ## Ограничения
 

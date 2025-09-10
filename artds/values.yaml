@@ -101,8 +101,8 @@ services:
       sslport: 3636
       nodePort: ""
       sslNodePort: ""
-      annotations: {}
-      #  metallb.io/loadBalancerIPs: 192.168.218.182
+      annotations:
+       metallb.io/loadBalancerIPs: 192.168.218.182
     pod1:
       type: LoadBalancer
       port: 3389
@@ -111,8 +111,8 @@ services:
       sslport: 3636
       nodePort: ""
       sslNodePort: ""
-      annotations: {}
-      #  metallb.io/loadBalancerIPs: 192.168.218.183
+      annotations:
+       metallb.io/loadBalancerIPs: 192.168.218.183
 
 resources:
   requests:
@@ -170,6 +170,7 @@ jobs:
   # Первоначальная инициализация, включение модулей, инициализация репликации
   init:
     enable: true
+    initialWaitSeconds: 180
     image:
       repository: 389ds/dirsrv
       pullPolicy: IfNotPresent
@@ -184,6 +185,8 @@ jobs:
   # Инициализация дерева.
   infra:
     enable: true
+    job: false
+    initialWaitSeconds: 180
     image:
       repository: 389ds/dirsrv
       pullPolicy: IfNotPresent

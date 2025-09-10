@@ -170,6 +170,7 @@ jobs:
   # Первоначальная инициализация, включение модулей, инициализация репликации
   init:
     enable: true
+    initialWaitSeconds: 180
     image:
       repository: 389ds/dirsrv
       pullPolicy: IfNotPresent
@@ -184,6 +185,8 @@ jobs:
   # Инициализация дерева.
   infra:
     enable: true
+    job: false
+    initialWaitSeconds: 180
     image:
       repository: 389ds/dirsrv
       pullPolicy: IfNotPresent
