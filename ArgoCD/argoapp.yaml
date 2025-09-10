@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ds
+  namespace: argocd
+spec:
+  destination:
+    namespace: ds
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    helm:
+      valueFiles:
+        - values-test.yaml
+    path: artds
+    repoURL: https://github.com/BigKAA/artds.git
+    targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
