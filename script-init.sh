@@ -96,6 +96,7 @@ EOF
     fi
 done
 
+# TODO: после экспериментов вынести в функцию и вызывать выше
 if [ $PLUGIN_CHANGE == "true" ]; then
     sleep 20
     logMsg INFO "Restart pods after change plugins"
