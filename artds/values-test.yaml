@@ -102,7 +102,7 @@ services:
       nodePort: ""
       sslNodePort: ""
       annotations:
-       metallb.io/loadBalancerIPs: 192.168.218.182
+        metallb.io/loadBalancerIPs: 192.168.218.182
     pod1:
       type: LoadBalancer
       port: 3389
@@ -112,7 +112,7 @@ services:
       nodePort: ""
       sslNodePort: ""
       annotations:
-       metallb.io/loadBalancerIPs: 192.168.218.183
+        metallb.io/loadBalancerIPs: 192.168.218.183
 
 resources:
   requests:
