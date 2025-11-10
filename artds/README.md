@@ -1,19 +1,24 @@
 # Artds helm chart
 
+**Внимание!** Обнаружены проблемы, буду тюнить!
+
 Helm chart дял установки LDAP сервера 389ds.
 
 В чарте гвоздями прибито:
-* Максимальное количество подов: 2. 
-* `podAntiAffinity` - не получится разметсить два пола на одной ноде.
+
+* Максимальное количество подов: 2.
+* `podAntiAffinity` - не получится разместить два пола на одной ноде.
 
 ## values file
 
-Количество подов. Не более 2-х. 
+Количество подов. Не более 2-х.
+
 ```yaml
 replicaCount: 2
 ```
 
 Контейнер ds сервера.
+
 ```yaml
 image:
   repository: 389ds/dirsrv
@@ -22,6 +27,7 @@ image:
 ```
 
 Init контейнер. Используется в поде StatefulSet.
+
 ```yaml
 initImage:
   repository: busybox
@@ -30,23 +36,27 @@ initImage:
 ```
 
 Secret , используемый для pull образов из хранилища контейнеров.
+
 ```yaml
 imagePullSecrets: []
 ```
 
 Изменение имени ресурсов по умолчанию. Не рекомендуется использовать, если в одном namespace планируется устанавливать несколько чартов.
+
 ```yaml
 nameOverride: ""
 fullnameOverride: ""
 ```
 
 Дополнительные аннотации и метки на подах.
+
 ```yaml
 podAnnotations: {}
 podLabels: {}
 ```
 
 Параметры SSL. Для выписывания и дальнейшей работы с SSL сертификатами, рекомендуется использовать установленный в кластере cert-manager.
+
 ```yaml
 ssl:
   # if false - будет генерироваться самоподписанный сертификат в каждом поде
@@ -78,6 +88,7 @@ ssl:
 ```
 
 Доступ к ds возможен через три типа Sevices: ClusterIP | NodePort | LoadBalancer.
+
 ```yaml
 services:
   main:
@@ -93,7 +104,8 @@ services:
       metallb.io/loadBalancerIPs: 192.168.218.181
 ```
 
-`servicePerPod` вспомогательные сервисы, обеспечивающие индивидуальный доступ к конкретному поду кластера. Применяется когда `replicaCount: 2`. 
+`servicePerPod` вспомогательные сервисы, обеспечивающие индивидуальный доступ к конкретному поду кластера. Применяется когда `replicaCount: 2`.
+
 ```yaml
   servicePerPod:
     enable: fale
@@ -120,6 +132,7 @@ services:
 ```
 
 Ресурсы.
+
 ```yaml
 resources:
   requests:
@@ -131,6 +144,7 @@ resources:
 ```
 
 Liveness и readiness пробы.
+
 ```yaml
 livenessProbe:
   exec:
@@ -147,6 +161,7 @@ readinessProbe:
 ```
 
 Параметры подключаемых томов, где ds будет хранить базу данных. Для каждого пода создаётся отдельный том с указанными параметрами.
+
 ```yaml
 persistence:
   accessMode: ReadWriteOnce
