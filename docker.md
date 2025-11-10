@@ -304,7 +304,7 @@ changetype: modify
 add: aci
 aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow (all) (groupdn = "ldap:///cn=Directory Administrators,dc=cdp,dc=local");)
 -
-
+changetype: modify
 add: aci
 aci: (targetattr="ou || objectClass")(targetfilter="(objectClass=organizationalUnit)")(version 3.0; acl "Enable anyone ou read"; allow (read, search, compare)(userdn="ldap:///anyone");)
 EOF
@@ -395,7 +395,6 @@ changetype: modify
 replace: nsslapd-pluginEnabled
 nsslapd-pluginEnabled: on
 -
-
 replace: memberofgroupattr
 memberofgroupattr: uniqueMember
 EOF
@@ -433,4 +432,48 @@ modifying entry "cn=MemberOf Plugin,cn=plugins,cn=config"
 
 ```bash
 docker restart ds-test
+```
+
+Проверим наличие изменений в настройках плагина:
+
+```bash
+docker exec -it ds-test \
+    ldapsearch -H ldap://ldap01.kryukov.local:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    -b "cn=plugins,cn=config" cn="MemberOf Plugin"
+```
+
+```ldif
+# extended LDIF
+#
+# LDAPv3
+# base <cn=plugins,cn=config> with scope subtree
+# filter: cn=MemberOf Plugin
+# requesting: ALL
+#
+
+# MemberOf Plugin, plugins, config
+dn: cn=MemberOf Plugin,cn=plugins,cn=config
+objectClass: top
+objectClass: nsSlapdPlugin
+objectClass: extensibleObject
+cn: MemberOf Plugin
+nsslapd-pluginPath: libmemberof-plugin
+nsslapd-pluginInitfunc: memberof_postop_init
+nsslapd-pluginType: betxnpostoperation
+nsslapd-pluginEnabled: on
+nsslapd-plugin-depends-on-type: database
+memberofgroupattr: uniqueMember
+memberofattr: memberOf
+nsslapd-pluginId: memberof
+nsslapd-pluginVersion: 3.1.2
+nsslapd-pluginVendor: 389 Project
+nsslapd-pluginDescription: memberof plugin
+
+# search result
+search: 2
+result: 0 Success
+
+# numResponses: 2
+# numEntries: 1
 ```
