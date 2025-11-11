@@ -304,7 +304,6 @@ changetype: modify
 add: aci
 aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow (all) (groupdn = "ldap:///cn=Directory Administrators,dc=test,dc=local");)
 -
-changetype: modify
 add: aci
 aci: (targetattr="ou || objectClass")(targetfilter="(objectClass=organizationalUnit)")(version 3.0; acl "Enable anyone ou read"; allow (read, search, compare)(userdn="ldap:///anyone");)
 EOF
