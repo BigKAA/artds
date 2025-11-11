@@ -30,7 +30,7 @@ mkdir -p /var/ldap
 
 ```bash
 docker run -d -m 1024M -p 3389:3389 -p 3636:3636 \
-    -e DS_SUFFIX_NAME="dc=cdp,dc=local" \
+    -e DS_SUFFIX_NAME="dc=test,dc=local" \
     -e DS_DM_PASSWORD="password" \
     -e DS_REINDEX=True \
     -v /var/ldap:/data \
@@ -43,9 +43,9 @@ docker run -d -m 1024M -p 3389:3389 -p 3636:3636 \
 > - `-d`: Запускает контейнер в фоновом режиме.
 > - `-m 1024M`: Ограничивает использование памяти контейнером до 1024 МБ.
 > - `-p 3389:3389 -p 3636:3636`: Пробрасывает порты LDAP (3389) и LDAPS (3636) с хост-машины в контейнер.
-> - `-e DS_SUFFIX_NAME="dc=cdp,dc=local"`: Устанавливает базовый суффикс для LDAP-сервера.
+> - `-e DS_SUFFIX_NAME="dc=test,dc=local"`: Устанавливает базовый суффикс для LDAP-сервера.
 > - `-e DS_DM_PASSWORD="password"`: Устанавливает пароль для пользователя `cn=Directory Manager`.
-> - `-e DS_REINDEX=True`: Указывает на необходимость переиндексации базы данных при первом запуске.
+> - `-e DS_REINDEX=True`: Указывает на необходимость переиндексации базы данных.
 > - `-v /var/ldap:/data`: Монтирует директорию `/var/ldap` с хост-машины в `/data` внутри контейнера для сохранения данных LDAP.
 > - `--name ds-test`: Присваивает контейнеру имя `ds-test`.
 > - `389ds/dirsrv:3.1`: Используемый образ Docker.
@@ -96,7 +96,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    backend create --suffix "dc=cdp,dc=local" \
+    backend create --suffix "dc=test,dc=local" \
     --be-name userroot --create-suffix
 ```
 
@@ -106,7 +106,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap02.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    backend create --suffix "dc=cdp,dc=local" \
+    backend create --suffix "dc=test,dc=local" \
     --be-name userroot --create-suffix
 ```
 
@@ -144,7 +144,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    replication status --suffix "dc=cdp,dc=local"
+    replication status --suffix "dc=test,dc=local"
 ```
 
 Затем на втором:
@@ -153,10 +153,10 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap02.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    replication status --suffix "dc=cdp,dc=local"
+    replication status --suffix "dc=test,dc=local"
 ```
 
-Если конфигурация отсутствует, получим сообщение об ошибке: `Error: No object exists given the filter criteria: dc=cdp,dc=local (&(&(objectclass=nsds5Replica))(|(nsDS5ReplicaRoot=dc=cdp,dc=local)))`.
+Если конфигурация отсутствует, получим сообщение об ошибке: `Error: No object exists given the filter criteria: dc=test,dc=local (&(&(objectclass=nsds5Replica))(|(nsDS5ReplicaRoot=dc=test,dc=local)))`.
 
 ### Добавляем конфигурацию репликации
 
@@ -166,7 +166,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    replication enable --suffix="dc=cdp,dc=local" \
+    replication enable --suffix="dc=test,dc=local" \
     --role="supplier" --replica-id=1 \
     --bind-dn="cn=replication manager,cn=config" \
     --bind-passwd="password"
@@ -178,7 +178,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap02.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    replication enable --suffix="dc=cdp,dc=local" \
+    replication enable --suffix="dc=test,dc=local" \
     --role="supplier" --replica-id=2 \
     --bind-dn="cn=replication manager,cn=config" \
     --bind-passwd="password"
@@ -186,7 +186,7 @@ docker exec -it ds-test \
 
 > **ВНИМАНИЕ:** Замените `password` на надежный пароль для репликации. Он будет использоваться для аутентификации между серверами.
 
-В случае корректного добавления получим сообщение:  `Replication successfully enabled for "dc=cdp,dc=local"`.
+В случае корректного добавления получим сообщение:  `Replication successfully enabled for "dc=test,dc=local"`.
 
 ### Добавляем соглашение на репликацию
 
@@ -196,7 +196,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    repl-agmt create --suffix="dc=cdp,dc=local" \
+    repl-agmt create --suffix="dc=test,dc=local" \
     --host="ldap02.kryukov.local" --port=3389 \
     --conn-protocol=LDAP \
     --bind-dn="cn=replication manager,cn=config" \
@@ -212,7 +212,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap02.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    repl-agmt create --suffix="dc=cdp,dc=local" \
+    repl-agmt create --suffix="dc=test,dc=local" \
     --host="ldap01.kryukov.local" --port=3389 \
     --conn-protocol=LDAP \
     --bind-dn="cn=replication manager,cn=config" \
@@ -228,7 +228,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    repl-agmt init meTo1 --suffix="dc=cdp,dc=local"
+    repl-agmt init meTo1 --suffix="dc=test,dc=local"
 ```
 
 > **Примечание:** Инициализация репликации выполняется только на одном сервере (`ldap01.kryukov.local`) для соглашения `meTo1`. Этого достаточно для первоначальной синхронизации данных с `ldap01` на `ldap02`. После этого соглашение `meTo0` на `ldap02` будет автоматически обрабатывать репликацию изменений с `ldap02` на `ldap01`.
@@ -241,7 +241,7 @@ docker exec -it ds-test \
 docker exec -it ds-test \
     dsconf ldap://ldap01.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    repl-agmt status --suffix "dc=cdp,dc=local" meTo1
+    repl-agmt status --suffix "dc=test,dc=local" meTo1
 ```
 
 Должны получить что то типа:
@@ -271,7 +271,7 @@ Replication Lag Time: 00:14:50
 docker exec -it ds-test \
     dsconf ldap://ldap02.kryukov.local:3389 \
     -D 'cn=Directory Manager' -w "password" \
-    repl-agmt status --suffix "dc=cdp,dc=local" meTo0
+    repl-agmt status --suffix "dc=test,dc=local" meTo0
 ```
 
 ```txt
@@ -299,10 +299,10 @@ Replication Lag Time: 00:00:00
 
 ```bash
 cat > /var/ldap/initConfigModify.ldif << EOF
-dn: dc=cdp,dc=local
+dn: dc=test,dc=local
 changetype: modify
 add: aci
-aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow (all) (groupdn = "ldap:///cn=Directory Administrators,dc=cdp,dc=local");)
+aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow (all) (groupdn = "ldap:///cn=Directory Administrators,dc=test,dc=local");)
 -
 changetype: modify
 add: aci
@@ -312,7 +312,7 @@ EOF
 
 Добавляем ACI:
 
-> **Примечание:** Это изменение вносится в суффикс `dc=cdp,dc=local`, для которого мы настроили репликацию. Поэтому достаточно выполнить команду на одном сервере (`ldap01`), и изменение автоматически синхронизируется с `ldap02`.
+> **Примечание:** Это изменение вносится в суффикс `dc=test,dc=local`, для которого мы настроили репликацию. Поэтому достаточно выполнить команду на одном сервере (`ldap01`), и изменение автоматически синхронизируется с `ldap02`.
 
 ```bash
 docker exec -it ds-test \
@@ -321,7 +321,7 @@ docker exec -it ds-test \
     -f /data/initConfigModify.ldif
 ```
 
-В случае корректного добавления получим сообщение: `modifying entry "dc=cdp,dc=local"`
+В случае корректного добавления получим сообщение: `modifying entry "dc=test,dc=local"`
 
 Проверяем:
 
@@ -342,8 +342,8 @@ docker exec -it ds-test \
 # requesting: + 
 #
 
-# cdp.local
-dn: dc=cdp,dc=local
+# test.local
+dn: dc=test,dc=local
 modifyTimestamp: 20251106095236Z
 modifiersName: cn=directory manager
 creatorsName: cn=directory manager
@@ -354,14 +354,14 @@ aci: (targetattr="dc || description || objectClass")(targetfilter="(objectClas
  s=domain)")(version 3.0; acl "Enable anyone domain read"; allow (read, search
  , compare)(userdn="ldap:///anyone");)
 aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow 
- (all) (groupdn = "ldap:///cn=Directory Administrators,dc=cdp,dc=local");)
+ (all) (groupdn = "ldap:///cn=Directory Administrators,dc=test,dc=local");)
 aci: (targetattr="ou || objectClass")(targetfilter="(objectClass=organizationa
  lUnit)")(version 3.0; acl "Enable anyone ou read"; allow (read, search, compa
  re)(userdn="ldap:///anyone");)
 numSubordinates: 2
 nsUniqueId: ec697aad-bae811f0-9b9ddb23-c0e5c100
-dsEntryDN: dc=cdp,dc=local
-entrydn: dc=cdp,dc=local
+dsEntryDN: dc=test,dc=local
+entrydn: dc=test,dc=local
 
 # search result
 search: 2

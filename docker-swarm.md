@@ -87,7 +87,7 @@
             target: ds_dm_password_file
         environment:
           - DS_DM_PASSWORD_FILE=/run/secrets/ds_dm_password_file
-          - DS_SUFFIX_NAME=dc=cdp,dc=local
+          - DS_SUFFIX_NAME=dc=test,dc=local
           - DS_REINDEX=True
         networks:
           - ldap_net
@@ -110,7 +110,7 @@
             target: ds_dm_password_file
         environment:
           - DS_DM_PASSWORD_FILE=/run/secrets/ds_dm_password_file
-          - DS_SUFFIX_NAME=dc=cdp,dc=local
+          - DS_SUFFIX_NAME=dc=test,dc=local
           - DS_REINDEX=True
         networks:
           - ldap_net
@@ -181,46 +181,46 @@
 
     ```bash
     # На ldap01
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" backend create --suffix "dc=cdp,dc=local" --be-name userroot --create-suffix
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" backend create --suffix "dc=test,dc=local" --be-name userroot --create-suffix
 
     # На ldap02
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" backend create --suffix "dc=cdp,dc=local" --be-name userroot --create-suffix
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" backend create --suffix "dc=test,dc=local" --be-name userroot --create-suffix
     ```
 
 3. **Включение репликации:**
 
     ```bash
     # На ldap01
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" replication enable --suffix="dc=cdp,dc=local" --role="supplier" --replica-id=1 --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS"
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" replication enable --suffix="dc=test,dc=local" --role="supplier" --replica-id=1 --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS"
 
     # На ldap02
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" replication enable --suffix="dc=cdp,dc=local" --role="supplier" --replica-id=2 --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS"
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" replication enable --suffix="dc=test,dc=local" --role="supplier" --replica-id=2 --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS"
     ```
 
 4. **Создание соглашений о репликации (Agreements):**
 
     ```bash
     # Соглашение от ldap01 к ldap02
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt create --suffix="dc=cdp,dc=local" --host="ldap02" --port=3389 --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS" --bind-method=SIMPLE meToLdap02
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt create --suffix="dc=test,dc=local" --host="ldap02" --port=3389 --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS" --bind-method=SIMPLE meToLdap02
 
     # Соглашение от ldap02 к ldap01
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt create --suffix="dc=cdp,dc=local" --host="ldap01" --port=3389 --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS" --bind-method=SIMPLE meToLdap01
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt create --suffix="dc=test,dc=local" --host="ldap01" --port=3389 --conn-protocol=LDAP --bind-dn="cn=replication manager,cn=config" --bind-passwd="$REPL_PASS" --bind-method=SIMPLE meToLdap01
     ```
 
 5. **Инициализация репликации:**
 
     ```bash
     # Инициализируем с ldap01 на ldap02
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt init meToLdap02 --suffix="dc=cdp,dc=local"
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt init meToLdap02 --suffix="dc=test,dc=local"
 
     # Инициализируем с ldap02 на ldap01
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt init meToLdap01 --suffix="dc=cdp,dc=local"
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt init meToLdap01 --suffix="dc=test,dc=local"
     ```
 
 6. **Проверка статуса:**
 
     ```bash
-    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt status --suffix "dc=cdp,dc=local" meToLdap02
+    docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" repl-agmt status --suffix "dc=test,dc=local" meToLdap02
     ```
 
     Убедитесь, что статус `In Synchronization`.
