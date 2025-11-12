@@ -108,7 +108,7 @@ kubectl exec -it -n artldap artds-0 -- \
 
 4. **MetalLB** или другой LoadBalancer provider (для type=LoadBalancer сервисов)
    ```bash
-   kubectl get pods -n metallb-system
+   kubectl get pods -n metallb
    ```
 
 ---
@@ -135,8 +135,8 @@ kubectl get pods -n cert-manager
 kubectl get clusterissuer
 
 # Проверка MetalLB (если используется)
-kubectl get pods -n metallb-system
-kubectl get ipaddresspool -n metallb-system
+kubectl get pods -n metallb
+kubectl get ipaddresspool -n metallb
 ```
 
 **Ожидаемый результат:**
@@ -1027,12 +1027,12 @@ kubectl describe svc artds -n artldap
 **Возможные причины**:
 1. **MetalLB не установлен**:
    ```bash
-   kubectl get pods -n metallb-system
+   kubectl get pods -n metallb
    ```
 
 2. **IP range не сконфигурирован**:
    ```bash
-   kubectl get ipaddresspool -n metallb-system
+   kubectl get ipaddresspool -n metallb
    ```
 
 3. **IP уже используется**:

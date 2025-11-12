@@ -1,4 +1,3 @@
----
 # Services для доступа к 389ds кластеру
 # Эквивалент Docker: -p 3389:3389 -p 3636:3636
 #
@@ -82,7 +81,7 @@ spec:
       protocol: TCP
       port: 3636
       targetPort: 3636
----
+
 # DNS записи после создания:
 #
 # LoadBalancer Service (artds):
@@ -101,11 +100,12 @@ spec:
 # - Replication agreements (прямое соединение между подами)
 # - Init Job (доступ к конкретным подам для настройки)
 # - Administrative tasks (dsconf, ldapmodify на specific pod)
----
+
 # ====================================================
 # Опционально: Per-pod Services для debugging
 # Раскомментируйте если нужен прямой внешний доступ к каждому поду
 # ====================================================
+# ---
 # apiVersion: v1
 # kind: Service
 # metadata:

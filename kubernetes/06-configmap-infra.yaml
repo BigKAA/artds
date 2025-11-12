@@ -1,4 +1,3 @@
----
 # ConfigMap с LDIF файлами для инициализации структуры LDAP дерева
 # Содержит:
 # - init-config-modify.ldiff - Добавление ACI (Access Control Instructions)

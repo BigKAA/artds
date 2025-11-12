@@ -1,4 +1,4 @@
----
+
 # Certificate для SSL/TLS с использованием cert-manager
 # Эквивалент Docker: самоподписанный сертификат в каждом контейнере
 #
@@ -58,7 +58,7 @@ spec:
     name: dev-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
----
+
 # После создания Certificate, cert-manager автоматически создаст Secret
 # с именем artds-tls-secret, содержащий:
 # - tls.crt - сертификат

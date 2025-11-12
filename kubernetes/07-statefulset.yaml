@@ -1,4 +1,4 @@
----
+
 # StatefulSet для развертывания 389ds кластера
 # Эквивалент Docker: docker run для двух контейнеров с persistent storage
 #
@@ -267,7 +267,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
----
+
 # Результат:
 # - artds-0: с PVC artds-data-artds-0
 # - artds-1: с PVC artds-data-artds-1

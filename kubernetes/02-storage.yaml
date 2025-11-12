@@ -1,4 +1,4 @@
----
+
 # PersistentVolumeClaim для хранения данных LDAP
 # Эквивалент Docker: -v /var/ldap:/data
 #
