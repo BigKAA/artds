@@ -1,0 +1,159 @@
+---
+# Services для доступа к 389ds кластеру
+# Эквивалент Docker: -p 3389:3389 -p 3636:3636
+#
+# Два типа сервисов:
+# 1. LoadBalancer - внешний доступ к кластеру (load balancing между подами)
+# 2. Headless - внутренний доступ к конкретным подам (для репликации)
+---
+# ====================================================
+# LoadBalancer Service - внешний доступ
+# Эквивалент Docker: -p 3389:3389 -p 3636:3636
+# ====================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds
+  namespace: artldap
+  labels:
+    app: artds
+    component: directory-server
+  annotations:
+    # MetalLB IP assignment из указанного диапазона
+    metallb.io/loadBalancerIPs: 192.168.218.183
+spec:
+  type: LoadBalancer
+  # Распределение трафика между всеми подами
+  selector:
+    app: artds
+    component: directory-server
+
+  # Порты для внешнего доступа
+  ports:
+    # LDAP (без шифрования)
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+
+    # LDAPS (с TLS шифрованием)
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+
+  # Session affinity для стабильности подключений
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 часа
+---
+# ====================================================
+# Headless Service - для StatefulSet и репликации
+# Предоставляет стабильные DNS имена для каждого пода
+# ====================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-hl
+  namespace: artldap
+  labels:
+    app: artds
+    component: directory-server-headless
+spec:
+  # clusterIP: None делает service "headless"
+  # Kubernetes не назначает ClusterIP, вместо этого
+  # создает DNS записи для каждого пода
+  clusterIP: None
+
+  # Публикация всех подов в DNS, даже если они not ready
+  publishNotReadyAddresses: true
+
+  selector:
+    app: artds
+    component: directory-server
+
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+---
+# DNS записи после создания:
+#
+# LoadBalancer Service (artds):
+# - artds.artldap.svc.cluster.local
+#   → Load balances to artds-0 and artds-1
+#
+# Headless Service (artds-hl):
+# - artds-hl.artldap.svc.cluster.local
+#   → Returns IPs of all pods
+# - artds-0.artds-hl.artldap.svc.cluster.local
+#   → Direct access to pod artds-0
+# - artds-1.artds-hl.artldap.svc.cluster.local
+#   → Direct access to pod artds-1
+#
+# Headless DNS используется для:
+# - Replication agreements (прямое соединение между подами)
+# - Init Job (доступ к конкретным подам для настройки)
+# - Administrative tasks (dsconf, ldapmodify на specific pod)
+---
+# ====================================================
+# Опционально: Per-pod Services для debugging
+# Раскомментируйте если нужен прямой внешний доступ к каждому поду
+# ====================================================
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: artds-0
+#   namespace: artldap
+#   labels:
+#     app: artds
+#     pod: artds-0
+#   annotations:
+#     metallb.io/loadBalancerIPs: 192.168.218.184
+# spec:
+#   type: LoadBalancer
+#   selector:
+#     app: artds
+#     component: directory-server
+#     statefulset.kubernetes.io/pod-name: artds-0
+#   ports:
+#     - name: ldap-tcp
+#       protocol: TCP
+#       port: 3389
+#       targetPort: 3389
+#     - name: ldaps-tcp
+#       protocol: TCP
+#       port: 3636
+#       targetPort: 3636
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: artds-1
+#   namespace: artldap
+#   labels:
+#     app: artds
+#     pod: artds-1
+#   annotations:
+#     metallb.io/loadBalancerIPs: 192.168.218.185
+# spec:
+#   type: LoadBalancer
+#   selector:
+#     app: artds
+#     component: directory-server
+#     statefulset.kubernetes.io/pod-name: artds-1
+#   ports:
+#     - name: ldap-tcp
+#       protocol: TCP
+#       port: 3389
+#       targetPort: 3389
+#     - name: ldaps-tcp
+#       protocol: TCP
+#       port: 3636
+#       targetPort: 3636

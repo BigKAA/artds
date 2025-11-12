@@ -1,0 +1,20 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "artds.fullname" . }}-exporter-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+    component: monitoring
+data:
+  config.yaml: |
+    # 389DS Prometheus Exporter Configuration
+    # Managed by Helm Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    ldap_uri: "ldap://localhost:3389"
+    bind_dn: "cn=Directory Manager"
+    bind_password: "password"  # Overridden by BIND_PASSWORD environment variable
+    monitor_base: "cn=monitor"
+    server_name: "default"  # Overridden by SERVER_NAME environment variable
+    scrape_interval: {{ .Values.monitoring.scrapeInterval }}
+{{- end }}

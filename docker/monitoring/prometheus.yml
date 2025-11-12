@@ -1,0 +1,66 @@
+# Prometheus Configuration for 389ds Monitoring
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: 'artds-docker'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+# rule_files:
+#   - '/etc/prometheus/rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # 389 Directory Server - Instance 1
+  - job_name: '389ds-ds1'
+    static_configs:
+      - targets: ['ds1-exporter:9313']
+        labels:
+          instance: 'ds1'
+          service: '389ds'
+          replica: '1'
+    metric_relabel_configs:
+      # Add custom labels
+      - source_labels: [__name__]
+        target_label: job
+        replacement: '389ds'
+
+  # 389 Directory Server - Instance 2
+  - job_name: '389ds-ds2'
+    static_configs:
+      - targets: ['ds2-exporter:9313']
+        labels:
+          instance: 'ds2'
+          service: '389ds'
+          replica: '2'
+    metric_relabel_configs:
+      # Add custom labels
+      - source_labels: [__name__]
+        target_label: job
+        replacement: '389ds'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          instance: 'prometheus'
+          service: 'monitoring'
+
+  # Optional: Grafana monitoring
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          instance: 'grafana'
+          service: 'monitoring'

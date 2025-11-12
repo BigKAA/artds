@@ -1,0 +1,277 @@
+---
+# StatefulSet для развертывания 389ds кластера
+# Эквивалент Docker: docker run для двух контейнеров с persistent storage
+#
+# StatefulSet используется вместо Deployment для:
+# - Стабильных сетевых идентификаторов (artds-0, artds-1)
+# - Упорядоченного развертывания подов
+# - Persistent storage для каждого пода
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: artds
+  namespace: artldap
+  labels:
+    app: artds
+    component: directory-server
+spec:
+  # Имя headless service для DNS discovery
+  serviceName: artds-hl
+
+  # Количество реплик (максимум 2 по архитектуре)
+  replicas: 2
+
+  # Селектор подов
+  selector:
+    matchLabels:
+      app: artds
+      component: directory-server
+
+  # Стратегия обновления подов
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0  # Обновление всех подов
+
+  # Политика управления подами
+  # OrderedReady: поды создаются по порядку (0 → 1)
+  podManagementPolicy: OrderedReady
+
+  # Шаблон пода
+  template:
+    metadata:
+      labels:
+        app: artds
+        component: directory-server
+      annotations:
+        prometheus.io/scrape: "false"  # Отключить Prometheus scraping
+    spec:
+      # ====================================================
+      # Anti-affinity: принудительное размещение на разных worker нодах
+      # ====================================================
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - artds
+              # КРИТИЧНО: размещать поды на разных нодах
+              topologyKey: kubernetes.io/hostname
+
+      # ====================================================
+      # Init Container для подготовки директорий
+      # ====================================================
+      initContainers:
+        - name: init-permissions
+          image: busybox:1.37.0
+          command: ['sh', '-c']
+          args:
+            - |
+              # Создание необходимых директорий
+              mkdir -p /data/config /data/db /data/tls
+              # Установка прав доступа
+              chmod 755 /data
+              echo "Initialization completed"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+      # ====================================================
+      # Основной контейнер 389ds
+      # ====================================================
+      containers:
+        - name: dirsrv
+          image: 389ds/dirsrv:3.1
+          imagePullPolicy: IfNotPresent
+
+          # Порты контейнера
+          ports:
+            - name: ldap
+              containerPort: 3389
+              protocol: TCP
+            - name: ldaps
+              containerPort: 3636
+              protocol: TCP
+
+          # Переменные окружения
+          env:
+            # Суффикс LDAP
+            - name: DS_SUFFIX_NAME
+              value: "dc=test,dc=local"
+
+            # Пароль Directory Manager из Secret
+            - name: DS_DM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_DM_PASSWORD
+
+            # Переиндексация при первом запуске
+            - name: DS_REINDEX
+              value: "True"
+
+            # Уровень логирования (опционально)
+            # - name: DS_ERRORLOG_LEVEL
+            #   value: "266354688"
+
+          # ====================================================
+          # Volume Mounts
+          # ====================================================
+          volumeMounts:
+            # Persistent data
+            - name: data
+              mountPath: /data
+
+            # TLS сертификаты от cert-manager
+            - name: tls-certs
+              mountPath: /data/tls
+              readOnly: true
+
+          # ====================================================
+          # Health Checks
+          # ====================================================
+          livenessProbe:
+            exec:
+              command:
+                - /usr/lib/dirsrv/dscontainer
+                - -H
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - /usr/lib/dirsrv/dscontainer
+                - -H
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # ====================================================
+          # Resource Limits
+          # ====================================================
+          resources:
+            requests:
+              cpu: "1"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+
+        # ====================================================
+        # Prometheus Exporter Sidecar
+        # ====================================================
+        - name: exporter
+          image: artds/389ds-exporter:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          # Порт для метрик
+          ports:
+            - name: metrics
+              containerPort: 9313
+              protocol: TCP
+
+          # Переменные окружения
+          env:
+            # LDAP URI для подключения к localhost
+            - name: LDAP_URI
+              value: "ldap://localhost:3389"
+
+            # Bind DN для мониторинга
+            - name: BIND_DN
+              value: "cn=Directory Manager"
+
+            # Пароль Directory Manager из Secret
+            - name: BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_DM_PASSWORD
+
+            # Имя сервера (имя пода)
+            - name: SERVER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          # Volume Mounts
+          volumeMounts:
+            - name: exporter-config
+              mountPath: /etc/389ds-exporter
+              readOnly: true
+
+          # Resource Limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          # Health Checks
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+      # ====================================================
+      # Volumes
+      # ====================================================
+      volumes:
+        # TLS сертификаты от cert-manager
+        - name: tls-certs
+          secret:
+            secretName: artds-tls-secret
+            optional: false
+
+        # Конфигурация Prometheus exporter
+        - name: exporter-config
+          configMap:
+            name: artds-exporter-config
+
+  # ====================================================
+  # VolumeClaimTemplates - автоматическое создание PVC для каждого пода
+  # Эквивалент Docker: -v /var/ldap:/data
+  # ====================================================
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: artds
+          component: storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: managed-nfs-storage
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Результат:
+# - artds-0: с PVC artds-data-artds-0
+# - artds-1: с PVC artds-data-artds-1
+#
+# DNS имена:
+# - artds-0.artds-hl.artldap.svc.cluster.local
+# - artds-1.artds-hl.artldap.svc.cluster.local

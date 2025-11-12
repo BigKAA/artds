@@ -1,0 +1,37 @@
+---
+# Headless Service для метрик Prometheus exporter
+# Позволяет Prometheus scrape-ить метрики с каждого пода индивидуально
+#
+# ClusterIP: None делает сервис headless, возвращая IP адреса подов
+# вместо единого балансируемого endpoint
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-metrics
+  namespace: artldap
+  labels:
+    app: artds
+    component: monitoring
+  annotations:
+    # Аннотации для автоматического обнаружения Prometheus
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9313"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service для StatefulSet
+  selector:
+    app: artds
+    component: directory-server
+  ports:
+    - name: metrics
+      port: 9313
+      targetPort: metrics
+      protocol: TCP
+---
+# Результат:
+# - artds-0.artds-metrics.artldap.svc.cluster.local:9313
+# - artds-1.artds-metrics.artldap.svc.cluster.local:9313
+#
+# Prometheus будет scrape-ить каждый под отдельно через эти DNS имена

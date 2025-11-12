@@ -1,0 +1,31 @@
+---
+# ConfigMap для конфигурации Prometheus exporter
+# Содержит настройки подключения к 389ds и параметры мониторинга
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artds-exporter-config
+  namespace: artldap
+  labels:
+    app: artds
+    component: monitoring
+data:
+  config.yaml: |
+    # 389DS Exporter configuration for Kubernetes
+    # Подключение к LDAP серверу
+    ldap_uri: "ldap://localhost:3389"
+
+    # Bind credentials (переопределяется через environment variables)
+    bind_dn: "cn=Directory Manager"
+    bind_password: "password"  # Will be overridden by BIND_PASSWORD env var
+
+    # Monitor base DN
+    monitor_base: "cn=monitor"
+
+    # Server name (переопределяется через POD_NAME)
+    server_name: "default"  # Will be overridden by SERVER_NAME env var
+
+    # Scrape interval in seconds
+    scrape_interval: 30
+---

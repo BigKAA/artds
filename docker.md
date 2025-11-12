@@ -476,3 +476,91 @@ result: 0 Success
 # numResponses: 2
 # numEntries: 1
 ```
+
+## JSON Logging Configuration
+
+389 Directory Server поддерживает JSON формат логов начиная с версии 3.0+.
+
+### Включение JSON логирования
+
+```bash
+# На каждом сервере выполнить:
+docker exec -it ds-test bash -c "
+dsconf localhost logging access set log-format json
+dsconf localhost logging error set log-format json
+dsconf localhost logging audit set log-format json  # Для 389ds 3.1.1+
+"
+
+# Повторить для второго сервера (если используется multi-master)
+```
+
+### Настройка формата времени
+
+```bash
+# ISO 8601 формат с timezone
+docker exec -it ds-test dsconf localhost logging access set time-format "%Y-%m-%dT%H:%M:%S%z"
+docker exec -it ds-test dsconf localhost logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
+```
+
+### Проверка JSON логов
+
+```bash
+# Просмотр логов в JSON формате
+docker logs ds-test 2>&1 | grep -E "^\{" | jq .
+
+# Фильтрация по операциям
+docker logs ds-test 2>&1 | jq 'select(.operation=="BIND")'
+docker logs ds-test 2>&1 | jq 'select(.operation=="SEARCH")'
+
+# Анализ ошибок
+docker logs ds-test 2>&1 | jq 'select(.result!="SUCCESS")'
+```
+
+### Пример JSON записи
+
+```json
+{
+  "key": "1741510357-1",
+  "operation": "BIND",
+  "conn_id": 1,
+  "op_id": 0,
+  "local_time": "2025-01-07T14:32:15+0000",
+  "bind_dn": "cn=Directory Manager",
+  "bind_method": "SIMPLE",
+  "result": "SUCCESS",
+  "etime": 0.000123
+}
+```
+
+### Автоматизация через скрипт
+
+Используйте готовый скрипт [docker/enable-json-logging.sh](docker/enable-json-logging.sh):
+
+```bash
+# Скопировать скрипт в контейнер
+docker cp docker/enable-json-logging.sh ds-test:/tmp/
+
+# Выполнить
+docker exec -it ds-test bash -c "
+  export ENABLE_JSON_LOGGING=true
+  export DS_DM_PASSWORD=password
+  /tmp/enable-json-logging.sh
+"
+
+# Или для обоих серверов (если multi-master)
+for HOST in ldap01.kryukov.local ldap02.kryukov.local; do
+  docker -H $HOST exec ds-test bash -c "
+    export ENABLE_JSON_LOGGING=true
+    export DS_DM_PASSWORD=password
+    /tmp/enable-json-logging.sh
+  "
+done
+```
+
+### Отключение JSON логирования
+
+```bash
+# Вернуться к default формату
+docker exec -it ds-test dsconf localhost logging access set log-format default
+docker exec -it ds-test dsconf localhost logging error set log-format default
+```

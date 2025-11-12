@@ -14,3 +14,67 @@
   echo "Visit ldap://127.0.0.1:3389 to use DS"
   kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 3389:$CONTAINER_PORT
 {{- end }}
+
+{{- if .Values.monitoring.enabled }}
+
+==================================================
+MONITORING
+==================================================
+
+Prometheus exporter has been enabled as a sidecar container.
+Scraping method: {{ .Values.monitoring.scrapingMethod }}
+
+Metrics endpoint:
+{{- $fullName := include "artds.fullname" . }}
+{{- range $i := until (int .Values.replicaCount) }}
+  http://{{ $fullName }}-{{ $i }}.{{ $fullName }}-metrics.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.monitoring.service.port }}/metrics
+{{- end }}
+
+To access metrics locally:
+  kubectl port-forward -n {{ .Release.Namespace }} {{ $fullName }}-0 9313:9313
+  curl http://localhost:9313/metrics | grep ldap_
+
+{{- if eq .Values.monitoring.scrapingMethod "servicemonitor" }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+
+ServiceMonitor has been created for Prometheus Operator.
+Check targets in Prometheus UI: Status → Targets
+
+To switch to annotation-based scraping:
+  helm upgrade {{ .Release.Name }} ./artds \
+    --set monitoring.scrapingMethod=annotations \
+    --reuse-values
+{{- else }}
+
+ServiceMonitor is disabled. To enable:
+  helm upgrade {{ .Release.Name }} ./artds \
+    --set monitoring.serviceMonitor.enabled=true \
+    --reuse-values
+{{- end }}
+{{- else if eq .Values.monitoring.scrapingMethod "annotations" }}
+
+Annotation-based scraping is enabled.
+Pod annotations:
+{{- range $key, $value := .Values.monitoring.annotations.pod }}
+  {{ $key }}: "{{ $value }}"
+{{- end }}
+
+Prometheus will auto-discover pods with these annotations.
+Ensure your Prometheus configuration includes:
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+
+To switch to ServiceMonitor:
+  helm upgrade {{ .Release.Name }} ./artds \
+    --set monitoring.scrapingMethod=servicemonitor \
+    --reuse-values
+{{- end }}
+
+Key metrics:
+  - ldap_connections_current: Active connections
+  - ldap_operations_total: Operations counter
+  - ldap_entries_total: Total entries in backend
+  - ldap_backend_entry_cache_hits: Entry cache performance
+
+{{- end }}

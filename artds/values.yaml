@@ -142,7 +142,7 @@ persistence:
   storageSize: 1Gi
 
 ds:
-  suffix: "dc=system,dc=local"
+  suffix: "dc=test,dc=local"
 
   # Пароли суперадмина и реплика менеджера
   # Используются только для первоначальной инициализации
@@ -165,6 +165,25 @@ ds:
   autotunePercentage: ""
   # run database reindex task (`db2index`)
   reindex: true
+
+# JSON Logging Configuration
+# Supported since 389ds 3.0+ (Audit Log requires 3.1.1+)
+logging:
+  # Enable JSON formatted logs (requires pod restart)
+  jsonFormat:
+    enable: true  # Set to false for default plain text format
+
+    # Log format options: default | json | json-pretty
+    accessLog: json
+    errorLog: json
+    auditLog: json  # Requires 389ds 3.1.1+
+
+  # Time format (strftime specification)
+  # Default: ISO 8601 with timezone
+  timeFormat:
+    accessLog: "%Y-%m-%dT%H:%M:%S%z"
+    errorLog: "%Y-%m-%dT%H:%M:%S%z"
+    auditLog: "%Y-%m-%dT%H:%M:%S%z"
 
 jobs:
   # Первоначальная инициализация, включение модулей, инициализация репликации
@@ -286,3 +305,72 @@ jobs:
       # objectClass: top
       # cn: group1
       # uniqueMember: uid=test_admin,ou=People,{{ .Values.ds.suffix }}
+
+# ============================================================
+# MONITORING CONFIGURATION
+# ============================================================
+
+monitoring:
+  # Enable Prometheus exporter sidecar
+  enabled: true
+
+  # Exporter image configuration
+  exporter:
+    repository: artds/389ds-exporter
+    pullPolicy: IfNotPresent
+    tag: "1.0.0"
+
+  # Exporter resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # Scrape interval for metrics collection (seconds)
+  scrapeInterval: 30
+
+  # Scraping method selection
+  # Options: "servicemonitor" or "annotations"
+  # - "servicemonitor": Use ServiceMonitor (requires Prometheus Operator)
+  # - "annotations": Use pod/service annotations (standard Prometheus)
+  scrapingMethod: servicemonitor
+
+  # ServiceMonitor configuration (requires Prometheus Operator)
+  # Only used when scrapingMethod: "servicemonitor"
+  serviceMonitor:
+    enabled: true
+    # Additional labels for ServiceMonitor
+    labels:
+      prometheus: kube-prometheus
+    # Scrape interval (default: 30s)
+    interval: 30s
+    # Scrape timeout (default: 10s)
+    scrapeTimeout: 10s
+    # Relabeling configurations
+    relabelings: []
+    # - sourceLabels: [__meta_kubernetes_pod_name]
+    #   targetLabel: pod
+
+  # Annotation-based scraping configuration
+  # Only used when scrapingMethod: "annotations"
+  annotations:
+    # Pod annotations for Prometheus auto-discovery
+    pod:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9313"
+      prometheus.io/path: "/metrics"
+    # Service annotations (optional, for service-level discovery)
+    service:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9313"
+      prometheus.io/path: "/metrics"
+
+  # Service for metrics endpoints
+  service:
+    # Service type (ClusterIP or LoadBalancer)
+    type: ClusterIP
+    # Port for metrics endpoint
+    port: 9313

@@ -1,0 +1,26 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "artds.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "artds.labels" . | nindent 4 }}
+    component: monitoring
+  {{- if eq .Values.monitoring.scrapingMethod "annotations" }}
+  annotations:
+    {{- with .Values.monitoring.annotations.service }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  type: {{ .Values.monitoring.service.type }}
+  clusterIP: None  # Headless service for StatefulSet
+  selector:
+    {{- include "artds.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.monitoring.service.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

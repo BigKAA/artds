@@ -1,0 +1,157 @@
+---
+# Job для автоматической инициализации 389ds кластера
+# Выполняет те же действия, что и ручные команды из docker.md
+# но полностью автоматизировано
+#
+# Задачи Job:
+# 1. Ожидание готовности подов StatefulSet
+# 2. Создание backends на обоих подах
+# 3. Включение репликации
+# 4. Создание replication agreements
+# 5. Инициализация репликации (только pod-0 → pod-1)
+# 6. Применение LDIF конфигурации (структура дерева)
+# 7. Включение плагинов
+# 8. Рестарт подов при необходимости
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: artds-init
+  namespace: artldap
+  labels:
+    app: artds
+    component: initialization
+spec:
+  # Количество попыток перезапуска при неудаче
+  backoffLimit: 3
+
+  # TTL после завершения (автоудаление через 24 часа)
+  ttlSecondsAfterFinished: 86400
+
+  template:
+    metadata:
+      labels:
+        app: artds
+        component: initialization
+    spec:
+      # ServiceAccount для доступа к Kubernetes API
+      # (необходим для рестарта StatefulSet)
+      serviceAccountName: artds-init-sa
+
+      # Политика рестарта: никогда не перезапускать pod после завершения
+      restartPolicy: Never
+
+      # ====================================================
+      # Контейнер с инициализационным скриптом
+      # ====================================================
+      containers:
+        - name: init
+          image: 389ds/dirsrv:3.1
+          imagePullPolicy: IfNotPresent
+
+          # Команда: запуск bash скрипта из ConfigMap
+          command: ["/bin/bash"]
+          args: ["/scripts/script-init.sh"]
+
+          # ====================================================
+          # Переменные окружения для скрипта
+          # ====================================================
+          env:
+            # Имя StatefulSet
+            - name: DS_POD_NAME
+              value: "artds"
+
+            # Имя headless service
+            - name: DS_HL_SVC_NAME
+              value: "artds-hl"
+
+            # Порт LDAP
+            - name: DS_SVC_PORT
+              value: "3389"
+
+            # Суффикс LDAP
+            - name: DS_SUFFIX_NAME
+              value: "dc=test,dc=local"
+
+            # Количество реплик
+            - name: NUMBER_OF_REPLICAS
+              value: "2"
+
+            # Пароль Directory Manager
+            - name: DS_DM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_DM_PASSWORD
+
+            # Пароль для репликации
+            - name: DS_REPL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_REPL_PASSWORD
+
+          # ====================================================
+          # Volume Mounts
+          # ====================================================
+          volumeMounts:
+            # Инициализационный скрипт
+            - name: init-script
+              mountPath: /scripts
+              readOnly: true
+
+            # LDIF файлы для структуры дерева
+            - name: infra-ldif
+              mountPath: /etc/openldap/init
+              readOnly: true
+
+          # ====================================================
+          # Resource Limits
+          # ====================================================
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+
+      # ====================================================
+      # Volumes
+      # ====================================================
+      volumes:
+        # Скрипт инициализации из ConfigMap
+        - name: init-script
+          configMap:
+            name: artds-init-script
+            defaultMode: 0755  # Executable
+
+        # LDIF файлы из ConfigMap
+        - name: infra-ldif
+          configMap:
+            name: artds-infra-ldif
+---
+# Примечания:
+#
+# 1. Job запускается ПОСЛЕ развертывания StatefulSet
+#    kubectl apply -f 01-namespace.yaml
+#    kubectl apply -f 02-storage.yaml
+#    kubectl apply -f 03-secrets.yaml
+#    kubectl apply -f 04-certificate.yaml
+#    kubectl apply -f 05-configmap-init.yaml
+#    kubectl apply -f 06-configmap-infra.yaml
+#    kubectl apply -f 07-statefulset.yaml
+#    kubectl apply -f 08-services.yaml
+#    kubectl apply -f 10-rbac.yaml
+#    kubectl apply -f 09-job-init.yaml  # <-- ПОСЛЕДНИМ
+#
+# 2. Проверка статуса Job:
+#    kubectl get jobs -n artldap
+#    kubectl logs -n artldap job/artds-init -f
+#
+# 3. Повторный запуск (если нужно):
+#    kubectl delete job artds-init -n artldap
+#    kubectl apply -f 09-job-init.yaml
+#
+# 4. Job автоматически удалится через 24 часа после завершения
+#    (ttlSecondsAfterFinished: 86400)

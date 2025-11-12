@@ -1,0 +1,54 @@
+---
+# ServiceMonitor для Prometheus Operator
+# Автоматически настраивает Prometheus для scraping метрик 389ds
+#
+# Требования:
+# - Prometheus Operator должен быть установлен в кластере
+# - ServiceMonitor должен иметь label, соответствующий selector в Prometheus CR
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: artds-metrics
+  namespace: artldap
+  labels:
+    app: artds
+    component: monitoring
+    # Этот label используется Prometheus Operator для обнаружения ServiceMonitor
+    prometheus: kube-prometheus
+spec:
+  # Селектор для Service
+  selector:
+    matchLabels:
+      app: artds
+      component: monitoring
+
+  # Настройки scraping
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      scheme: http
+
+      # Relabeling: добавление дополнительных labels к метрикам
+      relabelings:
+        # Добавить имя пода как label
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+
+        # Добавить namespace как label
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+
+        # Добавить статус пода как label
+        - sourceLabels: [__meta_kubernetes_pod_phase]
+          targetLabel: pod_phase
+---
+# Результат в Prometheus:
+# Metrics будут иметь labels:
+# - pod: artds-0 или artds-1
+# - namespace: artldap
+# - pod_phase: Running
+# - job: artds-metrics
+# - instance: <pod-ip>:9313

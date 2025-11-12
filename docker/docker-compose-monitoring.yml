@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # 389 Directory Server - Instance 1
+  ds1:
+    image: 389ds/dirsrv:latest
+    hostname: ds1
+    container_name: ds1
+    ports:
+      - "3389:3389"
+      - "3636:3636"
+    environment:
+      - DS_DM_PASSWORD=YourStrongAdminPassword
+      - DS_SUFFIX_NAME=dc=test,dc=local
+      - DS_REINDEX=True
+      - ENABLE_JSON_LOGGING=true
+    volumes:
+      - ds1_data:/data
+      - ./enable-json-logging.sh:/tmp/enable-json-logging.sh:ro
+    networks:
+      - ldap_network
+    healthcheck:
+      test: ["CMD", "dsctl", "localhost", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 389 Directory Server - Instance 2
+  ds2:
+    image: 389ds/dirsrv:latest
+    hostname: ds2
+    container_name: ds2
+    ports:
+      - "4389:3389"
+      - "4636:3636"
+    environment:
+      - DS_DM_PASSWORD=YourStrongAdminPassword
+      - DS_SUFFIX_NAME=dc=test,dc=local
+      - DS_REINDEX=True
+      - ENABLE_JSON_LOGGING=true
+    volumes:
+      - ds2_data:/data
+      - ./enable-json-logging.sh:/tmp/enable-json-logging.sh:ro
+    networks:
+      - ldap_network
+    healthcheck:
+      test: ["CMD", "dsctl", "localhost", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus Exporter for ds1 (ozgurcd/389DS-exporter)
+  ds1-exporter:
+    build:
+      context: ../monitoring/389ds-exporter
+      dockerfile: Dockerfile
+    image: artds/389ds-exporter:1.0.0
+    container_name: ds1-exporter
+    hostname: ds1-exporter
+    ports:
+      - "9313:9313"
+    command:
+      - "--web.listen-address=:9313"
+      - "--web.telemetry-path=/metrics"
+      - "--ldap.ServerFQDN=ds1"
+      - "--ldap.ServerPort=3389"
+    networks:
+      - ldap_network
+    depends_on:
+      ds1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Prometheus Exporter for ds2 (ozgurcd/389DS-exporter)
+  ds2-exporter:
+    build:
+      context: ../monitoring/389ds-exporter
+      dockerfile: Dockerfile
+    image: artds/389ds-exporter:1.0.0
+    container_name: ds2-exporter
+    hostname: ds2-exporter
+    ports:
+      - "9314:9313"
+    command:
+      - "--web.listen-address=:9313"
+      - "--web.telemetry-path=/metrics"
+      - "--ldap.ServerFQDN=ds2"
+      - "--ldap.ServerPort=3389"
+    networks:
+      - ldap_network
+    depends_on:
+      ds2:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Prometheus Server
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ldap_network
+    depends_on:
+      - ds1-exporter
+      - ds2-exporter
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - ldap_network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  ds1_data:
+    driver: local
+  ds2_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  ldap_network:
+    driver: bridge

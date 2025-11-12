@@ -17,10 +17,15 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        {{- if and .Values.monitoring.enabled (eq .Values.monitoring.scrapingMethod "annotations") }}
+        {{- with .Values.monitoring.annotations.pod }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- end }}
     spec:
       initContainers:
       - name: init-container
@@ -110,6 +115,12 @@ spec:
               mountPath: '/data/tls/ca'
               readOnly: true
             {{- end }}
+
+        {{- if .Values.monitoring.enabled }}
+        # Prometheus exporter sidecar
+        {{- include "artds.exporterContainer" . | nindent 8 }}
+        {{- end }}
+
       volumes:
         - name: config
           configMap:
@@ -137,6 +148,11 @@ spec:
             items:
             - key: ca.crt
               path: ca.crt
+        {{- end }}
+        {{- if .Values.monitoring.enabled }}
+        - name: exporter-config
+          configMap:
+            name: {{ include "artds.fullname" . }}-exporter-config
         {{- end }}
       affinity:
         podAntiAffinity:

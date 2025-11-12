@@ -105,6 +105,47 @@ data:
         fi
     done
 
+    {{- if .Values.logging.jsonFormat.enable }}
+    # ====================================================
+    # JSON LOGGING CONFIGURATION
+    # ====================================================
+    logMsg INFO "Настройка JSON логирования..."
+
+    for I in $(seq 0 $PODS_COUNT); do
+      POD_FQDN="${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}"
+
+      logMsg INFO "Настройка JSON логов на ${POD_FQDN}..."
+
+      # Access Log JSON
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set log-format {{ .Values.logging.jsonFormat.accessLog }} > /dev/null 2>&1
+
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set time-format "{{ .Values.logging.timeFormat.accessLog }}" > /dev/null 2>&1
+
+      # Error Log JSON
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set log-format {{ .Values.logging.jsonFormat.errorLog }} > /dev/null 2>&1
+
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set time-format "{{ .Values.logging.timeFormat.errorLog }}" > /dev/null 2>&1
+
+      # Audit Log JSON (если поддерживается версией)
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging audit set log-format {{ .Values.logging.jsonFormat.auditLog }} 2>/dev/null || \
+        logMsg WARN "Audit JSON не поддерживается этой версией 389ds"
+
+      logMsg INFO "JSON логирование настроено на ${POD_FQDN}"
+    done
+
+    logMsg INFO "JSON логирование успешно настроено на всех репликах"
+    {{- end }}
+
     if [ $PLUGIN_CHANGE == "true" ]; then
         sleep 20
         logMsg INFO "Restart pods after change plugins"

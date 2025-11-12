@@ -60,3 +60,52 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Exporter container definition
+*/}}
+{{- define "artds.exporterContainer" -}}
+- name: exporter
+  image: "{{ .Values.monitoring.exporter.repository }}:{{ .Values.monitoring.exporter.tag }}"
+  imagePullPolicy: {{ .Values.monitoring.exporter.pullPolicy }}
+  ports:
+  - name: metrics
+    containerPort: 9313
+    protocol: TCP
+  env:
+  - name: LDAP_URI
+    value: "ldap://localhost:3389"
+  - name: BIND_DN
+    value: "cn=Directory Manager"
+  - name: BIND_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        {{- if .Values.ds.adminSecretName }}
+        name: {{ .Values.ds.adminSecretName }}
+        {{- else }}
+        name: {{ include "artds.fullname" . }}-secret
+        {{- end }}
+        key: DS_DM_PASSWORD
+  - name: SERVER_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  volumeMounts:
+  - name: exporter-config
+    mountPath: /etc/389ds-exporter
+    readOnly: true
+  resources:
+    {{- toYaml .Values.monitoring.resources | nindent 4 }}
+  livenessProbe:
+    httpGet:
+      path: /metrics
+      port: metrics
+    initialDelaySeconds: 30
+    periodSeconds: 30
+  readinessProbe:
+    httpGet:
+      path: /metrics
+      port: metrics
+    initialDelaySeconds: 10
+    periodSeconds: 10
+{{- end }}

@@ -142,7 +142,7 @@ persistence:
   storageSize: 1Gi
 
 ds:
-  suffix: "dc=system,dc=local"
+  suffix: "dc=test,dc=local"
 
   # Пароли суперадмина и реплика менеджера
   # Используются только для первоначальной инициализации
@@ -165,6 +165,18 @@ ds:
   autotunePercentage: ""
   # run database reindex task (`db2index`)
   reindex: true
+
+# JSON Logging для test окружения
+logging:
+  jsonFormat:
+    enable: true
+    accessLog: json-pretty  # Pretty format для удобства отладки
+    errorLog: json-pretty
+    auditLog: json
+  timeFormat:
+    accessLog: "%Y-%m-%dT%H:%M:%S%z"
+    errorLog: "%Y-%m-%dT%H:%M:%S%z"
+    auditLog: "%Y-%m-%dT%H:%M:%S%z"
 
 jobs:
   # Первоначальная инициализация, включение модулей, инициализация репликации

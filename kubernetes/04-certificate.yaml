@@ -1,0 +1,68 @@
+---
+# Certificate для SSL/TLS с использованием cert-manager
+# Эквивалент Docker: самоподписанный сертификат в каждом контейнере
+#
+# В Kubernetes используется cert-manager для автоматического управления сертификатами.
+# cert-manager должен быть предварительно установлен в кластере.
+#
+# Установка cert-manager:
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: artds-tls
+  namespace: artldap
+  labels:
+    app: artds
+    component: tls
+spec:
+  # Имя Secret, в котором будут сохранены сертификаты
+  secretName: artds-tls-secret
+
+  # Срок действия сертификата (1 год)
+  duration: 8760h # 365 days
+
+  # Обновление за 15 дней до истечения
+  renewBefore: 360h # 15 days
+
+  # Subject Alternative Names (DNS имена)
+  dnsNames:
+    - artds-0.artds-hl.artldap.svc.cluster.local
+    - artds-1.artds-hl.artldap.svc.cluster.local
+    - artds-hl.artldap.svc.cluster.local
+    - artds.artldap.svc.cluster.local
+
+  # Организация
+  subject:
+    organizations:
+      - "LDAP Test Cluster"
+
+  # Не является CA сертификатом
+  isCA: false
+
+  # Конфигурация приватного ключа
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 4096
+    rotationPolicy: Always
+
+  # Использование ключа
+  usages:
+    - server auth
+    - client auth
+
+  # Ссылка на ClusterIssuer для выдачи сертификата
+  issuerRef:
+    name: dev-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# После создания Certificate, cert-manager автоматически создаст Secret
+# с именем artds-tls-secret, содержащий:
+# - tls.crt - сертификат
+# - tls.key - приватный ключ
+# - ca.crt  - корневой сертификат (если issuer предоставляет)
+#
+# Этот Secret будет смонтирован в поды 389ds для использования LDAPS (порт 3636)

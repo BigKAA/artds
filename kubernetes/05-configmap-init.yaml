@@ -1,0 +1,283 @@
+---
+# ConfigMap со скриптом инициализации кластера
+# Содержит bash-скрипт для автоматической настройки:
+# - Backend creation
+# - Replication enablement
+# - Replication agreements
+# - Plugin configuration
+#
+# Этот скрипт аналогичен командам из docker.md, но автоматизирован
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artds-init-script
+  namespace: artldap
+  labels:
+    app: artds
+    component: initialization
+data:
+  script-init.sh: |
+    #!/bin/bash
+
+    # Функция для структурированного логирования
+    logMsg() {
+        echo "{\"date\":\"$(date "+%d/%m/%Y %T%z")\",\"facility\":\"$1\",\"message\":\"$2\"}"
+    }
+
+    # Переменные окружения (устанавливаются Job)
+    # DS_POD_NAME - имя StatefulSet (artds)
+    # DS_HL_SVC_NAME - имя headless service (artds-hl)
+    # DS_SVC_PORT - порт LDAP (3389)
+    # DS_SUFFIX_NAME - суффикс LDAP (dc=test,dc=local)
+    # DS_DM_PASSWORD - пароль Directory Manager
+    # DS_REPL_PASSWORD - пароль для репликации
+    # NUMBER_OF_REPLICAS - количество реплик (2)
+
+    # Вычисляет количество подов (индекс с 0, поэтому -1)
+    PODS_COUNT=$((NUMBER_OF_REPLICAS - 1))
+    if [ $PODS_COUNT -le 0 ]; then
+        logMsg ERROR "No pods found in DS cluster."
+        exit 1
+    fi
+    logMsg INFO "Find $((PODS_COUNT + 1)) pods in DS cluster."
+
+    # ========================================
+    # Инициализация backends в кластере
+    # ========================================
+    for I in $(seq 0 $PODS_COUNT); do
+        logMsg INFO "Try to create backend at: ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
+
+        # Ожидание готовности пода (max 180 секунд)
+        TRIALS=0
+        until dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+            -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+            backend suffix list > /dev/null 2>&1; do
+            sleep 1
+            TRIALS=$(( TRIALS + 1 ))
+            if [ $TRIALS -gt 180 ]; then
+                logMsg ERROR "Timeout waiting for pod ${DS_POD_NAME}-${I}"
+                exit 1
+            fi
+        done
+        logMsg INFO "Connected to ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
+
+        # Проверка существования backend
+        if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+            -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+            backend suffix list --suffix | grep -Fwq "${DS_SUFFIX_NAME}"; then
+
+            # Создание backend
+            TRIALS=0
+            until dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+                backend create --suffix "${DS_SUFFIX_NAME}" \
+                --be-name userroot --create-suffix > /dev/null 2>&1; do
+                sleep 1
+                TRIALS=$(( TRIALS + 1 ))
+                if [ $TRIALS -gt 30 ]; then
+                    logMsg ERROR "Failed to create backend on pod ${DS_POD_NAME}-${I}"
+                    exit 1
+                fi
+            done
+            logMsg INFO "Backend created successfully on pod ${DS_POD_NAME}-${I}"
+        else
+            logMsg INFO "Backend already exists on pod ${DS_POD_NAME}-${I}"
+        fi
+    done
+
+    # ========================================
+    # Инициализация репликации (если > 1 пода)
+    # ========================================
+    if [ $PODS_COUNT -gt 0 ]; then
+        for I in $(seq 0 $PODS_COUNT); do
+            # Проверка статуса репликации
+            if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+                replication status --suffix ${DS_SUFFIX_NAME} > /dev/null 2>&1; then
+
+                logMsg INFO "Enabling replication on pod ${DS_POD_NAME}-${I}"
+
+                # Включение репликации
+                # Каждый под получает уникальный replica-id (I + 1)
+                dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                    -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+                    replication enable \
+                    --suffix="${DS_SUFFIX_NAME}" \
+                    --role="supplier" \
+                    --replica-id=$((I + 1)) \
+                    --bind-dn="cn=replication manager,cn=config" \
+                    --bind-passwd="${DS_REPL_PASSWORD}"
+
+                # Создание replication agreement
+                # Best Practice: только pod-0 инициализирует репликацию
+                if [ $I -eq 0 ]; then
+                    # Agreement от pod-0 к pod-1 с инициализацией
+                    logMsg INFO "Creating replication agreement from pod-0 to pod-1"
+                    dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                        -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+                        repl-agmt create \
+                        --suffix="${DS_SUFFIX_NAME}" \
+                        --host="${DS_POD_NAME}-1.${DS_HL_SVC_NAME}" \
+                        --port=${DS_SVC_PORT} \
+                        --conn-protocol=LDAP \
+                        --bind-dn="cn=replication manager,cn=config" \
+                        --bind-passwd="${DS_REPL_PASSWORD}" \
+                        --bind-method=SIMPLE \
+                        --init \
+                        meTo1
+                else
+                    # Agreement от pod-1 к pod-0 БЕЗ инициализации
+                    logMsg INFO "Creating replication agreement from pod-1 to pod-0"
+                    dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                        -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+                        repl-agmt create \
+                        --suffix="${DS_SUFFIX_NAME}" \
+                        --host="${DS_POD_NAME}-0.${DS_HL_SVC_NAME}" \
+                        --port=${DS_SVC_PORT} \
+                        --conn-protocol=LDAP \
+                        --bind-dn="cn=replication manager,cn=config" \
+                        --bind-passwd="${DS_REPL_PASSWORD}" \
+                        --bind-method=SIMPLE \
+                        meTo0
+                fi
+            else
+                logMsg INFO "Replication already enabled on pod ${DS_POD_NAME}-${I}"
+            fi
+        done
+    fi
+
+    # ========================================
+    # Применение LDIF конфигурации (если включено)
+    # ========================================
+    if [ -f /etc/openldap/init/init-config-modify.ldiff ]; then
+        logMsg INFO "Applying LDIF configuration modifications"
+        ldapmodify -c \
+            -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+            -D "cn=Directory Manager" \
+            -w "${DS_DM_PASSWORD}" \
+            -f /etc/openldap/init/init-config-modify.ldiff
+
+        ldapadd -c \
+            -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+            -D "cn=Directory Manager" \
+            -w "${DS_DM_PASSWORD}" \
+            -f /etc/openldap/init/init-config.ldiff
+    fi
+
+    # ========================================
+    # Включение плагинов
+    # ========================================
+    PLUGIN_CHANGE=false
+    for I in $(seq 0 $PODS_COUNT); do
+        # Проверка состояния плагина MemberOf
+        if ldapsearch \
+            -H "ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}" \
+            -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+            -b 'cn=plugins,cn=config' \
+            | grep -A10 'dn: cn=MemberOf Plugin,cn=plugins,cn=config' \
+            | grep 'nsslapd-pluginEnabled: off' > /dev/null 2>&1 ; then
+
+            logMsg INFO "Enabling plugins on pod ${DS_POD_NAME}-${I}"
+
+            # Включение плагинов через ldapmodify
+            ldapmodify \
+                -H ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                -D "cn=Directory Manager" \
+                -w "${DS_DM_PASSWORD}" \
+                > /dev/null 2>&1 << EOF
+    dn: cn=Retro Changelog Plugin,cn=plugins,cn=config
+    changetype: modify
+    replace: nsslapd-pluginEnabled
+    nsslapd-pluginEnabled: on
+    -
+
+    dn: cn=MemberOf Plugin,cn=plugins,cn=config
+    changetype: modify
+    replace: nsslapd-pluginEnabled
+    nsslapd-pluginEnabled: on
+    -
+    replace: memberofgroupattr
+    memberofgroupattr: uniqueMember
+    EOF
+            PLUGIN_CHANGE=true
+        else
+            logMsg INFO "Plugins already enabled on pod ${DS_POD_NAME}-${I}"
+        fi
+    done
+
+    # ====================================================
+    # JSON LOGGING CONFIGURATION
+    # ====================================================
+    logMsg INFO "Настройка JSON логирования..."
+
+    for I in $(seq 0 $PODS_COUNT); do
+      POD_FQDN="${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}"
+
+      logMsg INFO "Настройка JSON логов на ${POD_FQDN}..."
+
+      # Access Log JSON
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set log-format json > /dev/null 2>&1
+
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
+
+      # Error Log JSON
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set log-format json > /dev/null 2>&1
+
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
+
+      # Audit Log JSON (если поддерживается версией)
+      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging audit set log-format json 2>/dev/null || \
+        logMsg WARN "Audit JSON не поддерживается этой версией 389ds"
+
+      logMsg INFO "JSON логирование настроено на ${POD_FQDN}"
+    done
+
+    logMsg INFO "JSON логирование успешно настроено на всех репликах"
+
+    # ========================================
+    # Рестарт подов после изменения плагинов
+    # ========================================
+    if [ $PLUGIN_CHANGE == "true" ]; then
+        sleep 20
+        logMsg INFO "Restarting pods after plugin configuration change"
+
+        # Использование Kubernetes API для рестарта StatefulSet
+        APISERVER=https://kubernetes.default.svc
+        SERVICEACCOUNT=/var/run/secrets/kubernetes.io/serviceaccount
+        NAMESPACE=$(cat ${SERVICEACCOUNT}/namespace)
+        TOKEN=$(cat ${SERVICEACCOUNT}/token)
+        CACERT=${SERVICEACCOUNT}/ca.crt
+
+        # Патч StatefulSet для триггера рестарта подов
+        curl -s --location --cacert ${CACERT} \
+            --request PATCH \
+            "${APISERVER}/apis/apps/v1/namespaces/${NAMESPACE}/statefulsets/artds" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/strategic-merge-patch+json" \
+            --data '{
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": "'$(date +%Y-%m-%dT%T)'"
+                            }
+                        }
+                    }
+                }
+            }' > /dev/null
+
+        logMsg INFO "StatefulSet restart initiated"
+    fi
+
+    logMsg INFO "Initialization completed successfully"

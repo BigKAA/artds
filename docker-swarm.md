@@ -225,4 +225,102 @@
 
     Убедитесь, что статус `In Synchronization`.
 
-Поздравляем! Вы развернули кластер 389ds на нескольких машинах с помощью Docker Swarm. Дальнейшие шаги, такие как добавление ACI и включение плагинов, могут быть выполнены аналогично, используя `docker exec` и `ldapmodify`.
+---
+
+## Шаг 6: JSON Logging Configuration
+
+389 Directory Server версии 3.0+ поддерживает JSON-формат логов для Access, Error и Audit логов. Это упрощает интеграцию с системами централизованного логирования и мониторинга.
+
+### Включение JSON логирования
+
+На каждом сервисе выполните команды для настройки JSON логирования:
+
+```bash
+# Определяем переменные
+LDAP01_CONTAINER_ID=$(docker ps -q -f name=ldap_cluster_ldap01.1)
+LDAP02_CONTAINER_ID=$(docker ps -q -f name=ldap_cluster_ldap02.1)
+ADMIN_PASS=$(docker secret inspect -f '{{printf "%s" .Spec.Data}}' ds_admin_password | base64 -d)
+
+# Настройка JSON логов на ldap01
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging access set log-format json
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging access set time-format "%Y-%m-%dT%H:%M:%S%z"
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging error set log-format json
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging audit set log-format json
+
+# Настройка JSON логов на ldap02
+docker exec $LDAP02_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging access set log-format json
+docker exec $LDAP02_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging access set time-format "%Y-%m-%dT%H:%M:%S%z"
+docker exec $LDAP02_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging error set log-format json
+docker exec $LDAP02_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
+docker exec $LDAP02_CONTAINER_ID dsconf ldap://ldap02:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging audit set log-format json
+```
+
+**Примечание:** Audit Log JSON доступен начиная с 389ds 3.1.1+. Для более ранних версий эта команда будет игнорироваться.
+
+### Просмотр JSON логов
+
+Для просмотра JSON логов можно использовать `jq`:
+
+```bash
+# Access Log
+docker exec $LDAP01_CONTAINER_ID tail -f /var/log/dirsrv/slapd-localhost/access | jq .
+
+# Error Log
+docker exec $LDAP01_CONTAINER_ID tail -f /var/log/dirsrv/slapd-localhost/errors | jq .
+
+# Фильтрация по уровню
+docker exec $LDAP01_CONTAINER_ID tail -f /var/log/dirsrv/slapd-localhost/errors | jq 'select(.level == "ERROR")'
+
+# Фильтрация по пользователю
+docker exec $LDAP01_CONTAINER_ID tail -f /var/log/dirsrv/slapd-localhost/access | jq 'select(.bind_dn | contains("uid=testuser"))'
+```
+
+### Автоматизация через скрипт
+
+Для упрощения настройки JSON логирования используйте готовый скрипт [docker/enable-json-logging.sh](docker/enable-json-logging.sh):
+
+```bash
+# Скопировать скрипт в контейнер ldap01
+docker cp docker/enable-json-logging.sh $(docker ps -q -f name=ldap_cluster_ldap01.1):/tmp/
+
+# Выполнить настройку для ldap01
+docker exec $(docker ps -q -f name=ldap_cluster_ldap01.1) bash -c "
+  export ENABLE_JSON_LOGGING=true
+  export DS_DM_PASSWORD='YourStrongAdminPassword'
+  export DS_INSTANCE='ldap://ldap01:3389'
+  /tmp/enable-json-logging.sh
+"
+
+# Аналогично для ldap02
+docker cp docker/enable-json-logging.sh $(docker ps -q -f name=ldap_cluster_ldap02.1):/tmp/
+
+docker exec $(docker ps -q -f name=ldap_cluster_ldap02.1) bash -c "
+  export ENABLE_JSON_LOGGING=true
+  export DS_DM_PASSWORD='YourStrongAdminPassword'
+  export DS_INSTANCE='ldap://ldap02:3389'
+  /tmp/enable-json-logging.sh
+"
+```
+
+### Интеграция с системами логирования
+
+JSON логи легко интегрировать с ELK Stack, Loki, Splunk или другими системами:
+
+```bash
+# Пример для Promtail/Loki
+docker service logs -f ldap_cluster_ldap01 | jq .
+```
+
+### Откат на стандартный формат
+
+Если необходимо вернуться к обычному текстовому формату:
+
+```bash
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging access set log-format default
+docker exec $LDAP01_CONTAINER_ID dsconf ldap://ldap01:3389 -D 'cn=Directory Manager' -w "$ADMIN_PASS" logging error set log-format default
+```
+
+---
+
+Поздравляем! Вы развернули кластер 389ds на нескольких машинах с помощью Docker Swarm с поддержкой JSON логирования. Дальнейшие шаги, такие как добавление ACI и включение плагинов, могут быть выполнены аналогично, используя `docker exec` и `ldapmodify`.
