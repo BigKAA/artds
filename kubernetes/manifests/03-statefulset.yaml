@@ -11,7 +11,6 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: artds
-  namespace: artldap
   labels:
     app: artds
     component: directory-server
@@ -19,7 +18,7 @@ spec:
   # Имя headless service для DNS discovery
   serviceName: artds-hl
 
-  # Количество реплик (максимум 2 по архитектуре)
+  # Количество реплик
   replicas: 2
 
   # Селектор подов
@@ -28,24 +27,12 @@ spec:
       app: artds
       component: directory-server
 
-  # Стратегия обновления подов
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      partition: 0  # Обновление всех подов
-
-  # Политика управления подами
-  # OrderedReady: поды создаются по порядку (0 → 1)
-  podManagementPolicy: OrderedReady
-
   # Шаблон пода
   template:
     metadata:
       labels:
         app: artds
         component: directory-server
-      annotations:
-        prometheus.io/scrape: "false"  # Отключить Prometheus scraping
     spec:
       # ====================================================
       # Anti-affinity: принудительное размещение на разных worker нодах
@@ -63,7 +50,10 @@ spec:
               topologyKey: kubernetes.io/hostname
 
       # ====================================================
-      # Init Container для подготовки директорий
+      # Init Container проверяет номер пода.
+      # Если это второй (считаем с 0) и более под,
+      # возвращаем ошибку. Под не будет стартовать и
+      # и будет постоянно перезагружаться.
       # ====================================================
       initContainers:
         - name: init-permissions
@@ -71,11 +61,19 @@ spec:
           command: ['sh', '-c']
           args:
             - |
-              # Создание необходимых директорий
-              mkdir -p /data/config /data/db /data/tls
+              NUM=$(echo $POD_NAME | cut -f2 -d'-')
+              if [ $NUM -gt 1 ]; then
+                echo "Number of replicas must be 1 or 2"
+                exit 1
+              fi
               # Установка прав доступа
               chmod 755 /data
               echo "Initialization completed"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: data
               mountPath: /data
@@ -130,6 +128,9 @@ spec:
             - name: tls-certs
               mountPath: /data/tls
               readOnly: true
+            - name: dirsrv-tls-ca
+              mountPath: '/data/tls/ca'
+              readOnly: true
 
           # ====================================================
           # Health Checks
@@ -162,78 +163,8 @@ spec:
               cpu: "1"
               memory: "512Mi"
             limits:
-              cpu: "1"
-              memory: "512Mi"
-
-        # ====================================================
-        # Prometheus Exporter Sidecar
-        # ====================================================
-        - name: exporter
-          image: artds/389ds-exporter:1.0.0
-          imagePullPolicy: IfNotPresent
-
-          # Порт для метрик
-          ports:
-            - name: metrics
-              containerPort: 9313
-              protocol: TCP
-
-          # Переменные окружения
-          env:
-            # LDAP URI для подключения к localhost
-            - name: LDAP_URI
-              value: "ldap://localhost:3389"
-
-            # Bind DN для мониторинга
-            - name: BIND_DN
-              value: "cn=Directory Manager"
-
-            # Пароль Directory Manager из Secret
-            - name: BIND_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: artds-admin-secret
-                  key: DS_DM_PASSWORD
-
-            # Имя сервера (имя пода)
-            - name: SERVER_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-
-          # Volume Mounts
-          volumeMounts:
-            - name: exporter-config
-              mountPath: /etc/389ds-exporter
-              readOnly: true
-
-          # Resource Limits
-          resources:
-            requests:
-              cpu: 100m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
-
-          # Health Checks
-          livenessProbe:
-            httpGet:
-              path: /metrics
-              port: metrics
-            initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
-
-          readinessProbe:
-            httpGet:
-              path: /metrics
-              port: metrics
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+              cpu: "2"
+              memory: "2048Mi"
 
       # ====================================================
       # Volumes
@@ -243,12 +174,15 @@ spec:
         - name: tls-certs
           secret:
             secretName: artds-tls-secret
-            optional: false
-
-        # Конфигурация Prometheus exporter
-        - name: exporter-config
-          configMap:
-            name: artds-exporter-config
+        
+        # Сертификат CA необходимо монтировать в другую точку файловой
+        # системы контейнера
+        - name: dirsrv-tls-ca
+          secret:
+            secretName: artds-tls-secret
+            items:
+            - key: ca.crt
+              path: ca.crt
 
   # ====================================================
   # VolumeClaimTemplates - автоматическое создание PVC для каждого пода
@@ -267,11 +201,3 @@ spec:
         resources:
           requests:
             storage: 1Gi
-
-# Результат:
-# - artds-0: с PVC artds-data-artds-0
-# - artds-1: с PVC artds-data-artds-1
-#
-# DNS имена:
-# - artds-0.artds-hl.artldap.svc.cluster.local
-# - artds-1.artds-hl.artldap.svc.cluster.local

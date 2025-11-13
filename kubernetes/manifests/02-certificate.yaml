@@ -27,11 +27,20 @@ spec:
   renewBefore: 360h # 15 days
 
   # Subject Alternative Names (DNS имена)
+  # Мы должны заранее знать namespace, где будет размещен StatefulSet
+  # Его имя. И имя headless service. Для того, что бы корректно 
+  # написать эту секцию.
   dnsNames:
     - artds-0.artds-hl.artldap.svc.cluster.local
     - artds-1.artds-hl.artldap.svc.cluster.local
     - artds-hl.artldap.svc.cluster.local
     - artds.artldap.svc.cluster.local
+  # Мне заранее известны IP адреса, которые будут выданы MetalLB сервисам
+  # типа LoadBalancer
+  ipAddresses:
+    - 192.168.218.183
+    - 192.168.218.184
+    - 192.168.218.185
 
   # Организация
   subject:
@@ -58,11 +67,3 @@ spec:
     name: dev-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
-
-# После создания Certificate, cert-manager автоматически создаст Secret
-# с именем artds-tls-secret, содержащий:
-# - tls.crt - сертификат
-# - tls.key - приватный ключ
-# - ca.crt  - корневой сертификат (если issuer предоставляет)
-#
-# Этот Secret будет смонтирован в поды 389ds для использования LDAPS (порт 3636)

@@ -1,6 +1,6 @@
 # Развертывание 389ds в Kubernetes
 
-Это руководство показывает развертывание кластера 389 Directory Server в Kubernetes с использованием нативных манифестов (без Helm). Материал является продолжением [docker.md](../docker.md) и демонстрирует эквиваленты Docker команд в Kubernetes.
+Это руководство показывает развертывание кластера 389 Directory Server в Kubernetes с использованием манифестов. Материал является продолжением [docker.md](../docker.md) и демонстрирует эквиваленты Docker команд в Kubernetes.
 
 ---
 
@@ -22,22 +22,10 @@
 
 ## 🔄 Сравнение: Docker vs Kubernetes
 
-### Концептуальное сопоставление
-
-| Docker Концепция | Kubernetes Эквивалент | Файл Манифеста |
-|------------------|----------------------|----------------|
-| `docker run -d` | Pod / StatefulSet | [07-statefulset.yaml](07-statefulset.yaml) |
-| `-p 3389:3389` | Service type=LoadBalancer | [08-services.yaml](08-services.yaml) |
-| `-v /var/ldap:/data` | PersistentVolumeClaim | [02-storage.yaml](02-storage.yaml) + volumeClaimTemplates |
-| `-e DS_DM_PASSWORD` | Secret + env | [03-secrets.yaml](03-secrets.yaml) |
-| `--name ds-test` | metadata.name | Все манифесты |
-| `docker exec` | `kubectl exec` | Команды в руководстве |
-| Docker network | Service (ClusterIP, Headless) | [08-services.yaml](08-services.yaml) |
-| Container restart | livenessProbe + readinessProbe | [07-statefulset.yaml](07-statefulset.yaml) |
-
 ### Сравнение команд
 
 #### Docker
+
 ```bash
 # Запуск контейнера
 docker run -d -m 1024M -p 3389:3389 -p 3636:3636 \
@@ -59,6 +47,7 @@ docker exec -it ds-test \
 ```
 
 #### Kubernetes
+
 ```bash
 # Развертывание манифестов
 kubectl apply -f kubernetes/
@@ -80,36 +69,10 @@ kubectl exec -it -n artldap artds-0 -- \
 ### Kubernetes Кластер
 
 - **Минимальная конфигурация**:
-  - 1 control-plane нода
-  - **Минимум 2 worker ноды** (для размещения подов на разных нодах)
+  - 1 Сontrol нода
+  - **Минимум 2 worker ноды** для размещения подов на разных нодах кластера.
 - **Версия Kubernetes**: 1.24+
 - **kubectl**: Настроен и подключен к кластеру
-
-### Необходимые компоненты
-
-1. **StorageClass**: Для динамического выделения persistent volumes
-   ```bash
-   kubectl get storageclass managed-nfs-storage
-   ```
-
-2. **cert-manager**: Для автоматического управления TLS сертификатами
-   ```bash
-   # Установка (если не установлен)
-   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
-
-   # Проверка
-   kubectl get pods -n cert-manager
-   ```
-
-3. **ClusterIssuer**: Для выдачи сертификатов (должен быть создан заранее)
-   ```bash
-   kubectl get clusterissuer dev-ca-issuer
-   ```
-
-4. **MetalLB** или другой LoadBalancer provider (для type=LoadBalancer сервисов)
-   ```bash
-   kubectl get pods -n metallb
-   ```
 
 ---
 
@@ -120,15 +83,9 @@ kubectl exec -it -n artldap artds-0 -- \
 ```bash
 # Проверка нод (должно быть минимум 2 worker ноды)
 kubectl get nodes
-kubectl get nodes --show-labels | grep node-role.kubernetes.io/worker
-
-# Детальная информация о каждой worker ноде
-kubectl describe node <worker-node-1-name>
-kubectl describe node <worker-node-2-name>
 
 # Проверка StorageClass
 kubectl get storageclass
-kubectl describe storageclass managed-nfs-storage
 
 # Проверка cert-manager
 kubectl get pods -n cert-manager
@@ -139,195 +96,668 @@ kubectl get pods -n metallb
 kubectl get ipaddresspool -n metallb
 ```
 
-**Ожидаемый результат:**
-- Минимум 2 worker ноды в состоянии `Ready`
-- StorageClass `managed-nfs-storage` существует
-- cert-manager поды в состоянии `Running`
-- ClusterIssuer `dev-ca-issuer` существует
-
----
-
-## 🏗️ Архитектура решения
-
-### Kubernetes Компоненты
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                          │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Namespace: artldap                                     │   │
-│  │                                                         │   │
-│  │  ┌──────────────────┐         ┌──────────────────┐    │   │
-│  │  │  artds-0         │         │  artds-1         │    │   │
-│  │  │  (Pod)           │◄───────►│  (Pod)           │    │   │
-│  │  │                  │  Repl   │                  │    │   │
-│  │  │  389ds:3.1       │         │  389ds:3.1       │    │   │
-│  │  │                  │         │                  │    │   │
-│  │  │  PVC: 1Gi        │         │  PVC: 1Gi        │    │   │
-│  │  └────────┬─────────┘         └────────┬─────────┘    │   │
-│  │           │                              │              │   │
-│  │           └──────────┬───────────────────┘              │   │
-│  │                      │                                  │   │
-│  │           ┌──────────▼──────────┐                      │   │
-│  │           │  artds-hl Service   │                      │   │
-│  │           │  (Headless)         │                      │   │
-│  │           └──────────┬──────────┘                      │   │
-│  │                      │                                  │   │
-│  │           ┌──────────▼──────────┐                      │   │
-│  │           │  artds Service      │                      │   │
-│  │           │  (LoadBalancer)     │                      │   │
-│  │           │  192.168.218.183    │                      │   │
-│  │           └─────────────────────┘                      │   │
-│  │                                                         │   │
-│  │  ┌────────────────────────────────────────────────┐   │   │
-│  │  │  artds-init Job (one-time)                     │   │   │
-│  │  │  - Backend creation                            │   │   │
-│  │  │  - Replication setup                           │   │   │
-│  │  │  - Plugin configuration                        │   │   │
-│  │  └────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-
-Worker Node 1: artds-0 (forced by anti-affinity)
-Worker Node 2: artds-1 (forced by anti-affinity)
-```
-
-### Ключевые особенности
-
-1. **StatefulSet** вместо Deployment:
-   - Стабильные сетевые идентификаторы (artds-0, artds-1)
-   - Упорядоченное развертывание
-   - Автоматическое создание PVC для каждого пода
-
-2. **Anti-affinity правила**:
-   - Принудительное размещение подов на разных worker нодах
-   - Защита от единой точки отказа (single point of failure)
-
-3. **Два типа Services**:
-   - **LoadBalancer** (artds): внешний доступ с балансировкой нагрузки
-   - **Headless** (artds-hl): прямой доступ к подам для репликации
-
-4. **Автоматическая инициализация**:
-   - Job выполняет все шаги настройки
-   - Аналог ручных команд из docker.md
-
----
-
 ## 🚀 Развертывание: Шаг за шагом
 
-### Порядок применения манифестов
+### Установка приложения
 
-⚠️ **ВАЖНО**: Применяйте манифесты в указанном порядке!
+По аналогии с запуском приложения в обыкновенных контейнерах, сначала запустим поды с контейнерами 389ds.
 
-```bash
-# Шаг 1: Namespace
-# В plain Kubernetes манифестах namespace создается через манифест
-kubectl apply -f 01-namespace.yaml
-# Альтернативно: kubectl create namespace artldap
-
-# Шаг 2: Storage (опционально, создается автоматически через volumeClaimTemplates)
-# kubectl apply -f 02-storage.yaml
-
-# Шаг 3: Secrets
-kubectl apply -f 03-secrets.yaml
-
-# Шаг 4: Certificate
-kubectl apply -f 04-certificate.yaml
-
-# Шаг 5-6: ConfigMaps
-kubectl apply -f 05-configmap-init.yaml
-kubectl apply -f 06-configmap-infra.yaml
-
-# Шаг 7: StatefulSet
-kubectl apply -f 07-statefulset.yaml
-
-# Шаг 8: Services
-kubectl apply -f 08-services.yaml
-
-# Шаг 9: RBAC (перед Job)
-kubectl apply -f 10-rbac.yaml
-
-# Шаг 10: Initialization Job (ПОСЛЕДНИМ!)
-kubectl apply -f 09-job-init.yaml
-```
-
-Или применить все сразу:
-```bash
-kubectl apply -f kubernetes/
-```
-
-### Мониторинг развертывания
+Создадим namespace:
 
 ```bash
-# Проверка всех ресурсов в namespace
-kubectl get all -n artldap
-
-# Статус подов
-kubectl get pods -n artldap -w
-
-# Логи pod artds-0
-kubectl logs -n artldap artds-0 -f
-
-# Логи Job инициализации
-kubectl logs -n artldap job/artds-init -f
-
-# Проверка PVC
-kubectl get pvc -n artldap
-
-# Проверка сертификата
-kubectl get certificate -n artldap
-kubectl describe certificate artds-tls -n artldap
-
-# Проверка Services
-kubectl get svc -n artldap
+kubectl create ns artldap
 ```
 
-**Ожидаемое время развертывания:**
-- StatefulSet поды: 2-5 минут
-- Certificate выдача: 1-2 минуты
-- Job инициализации: 2-3 минуты
+```txt
+namespace/artldap created
+```
+
+Первоначальный пароль администратора кластера и пользователя для репликаций поместим в secret (файл `manifests/01-secrets.yaml`):
+
+```yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: artds-admin-secret
+  labels:
+    app: artds
+    component: authentication
+type: Opaque
+data:
+  # Base64 encoded passwords
+  # Для демонстрации используется "password"
+  # echo -n "password" | base64
+  DS_DM_PASSWORD: cGFzc3dvcmQ=
+  DS_REPL_PASSWORD: cGFzc3dvcmQ=
+```
+
+Добавим Secret в кластер:
+
+```bash
+kubectl -n artldap apply -f manifests/01-secrets.yaml
+```
+
+```txt
+secret/artds-admin-secret created
+```
+
+Для создания сертификатов будем использовать cert-manager. Соответственно создадим `kind: Certificate` (файл `manifests/02-certificate.yaml`).
+
+```yaml
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: artds-tls
+  labels:
+    app: artds
+    component: tls
+spec:
+  # Имя Secret, в котором будут сохранены сертификаты
+  secretName: artds-tls-secret
+
+  # Срок действия сертификата (1 год)
+  duration: 8760h # 365 days
+
+  # Обновление за 15 дней до истечения
+  renewBefore: 360h # 15 days
+
+  # Subject Alternative Names (DNS имена)
+  # Мы должны заранее знать namespace, где будет размещен StatefulSet
+  # Его имя. И имя headless service. Для того, что бы корректно 
+  # написать эту секцию.
+  dnsNames:
+    - artds-0.artds-hl.artldap.svc.cluster.local
+    - artds-1.artds-hl.artldap.svc.cluster.local
+    - artds-hl.artldap.svc.cluster.local
+    - artds.artldap.svc.cluster.local
+
+  # Мне заранее известны IP адреса, которые будут выданы MetalLB сервисам
+  # типа LoadBalancer
+  ipAddresses:
+    - 192.168.218.183
+    - 192.168.218.184
+    - 192.168.218.185
+
+  # Формирование Subject сертификата.
+  subject:
+    organizations:
+      - "LDAP Test Cluster"
+
+  # Не является CA сертификатом
+  isCA: false
+
+  # Конфигурация приватного ключа
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 4096
+    rotationPolicy: Always
+
+  # Использование ключа
+  usages:
+    - server auth
+    - client auth
+
+  # Ссылка на ClusterIssuer для выдачи сертификата
+  issuerRef:
+    name: dev-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+```
+
+Добавим манифест в кластер:
+
+```bash
+kubectl -n artldap apply -f manifests/02-certificate.yaml
+```
+
+```txt
+certificate.cert-manager.io/artds-tls created
+```
+
+После создания Certificate, cert-manager автоматически создаст Secret
+с именем `artds-tls-secret`, содержащий:
+
+- tls.crt - сертификат
+- tls.key - приватный ключ
+- ca.crt  - корневой сертификат (если issuer предоставляет)
+
+Этот Secret будет смонтирован в поды 389ds для использования LDAPS (порт 3636)
+
+Проверим, был ли создан Secret.
+
+```bash
+kubectl -n artldap get secrets
+```
+
+```txt
+NAME                 TYPE                DATA   AGE
+artds-admin-secret   Opaque              2      44s
+artds-tls-secret     kubernetes.io/tls   3      21s
+```
+
+Манифест StatefullSet (файл `manifests/03-statefulset.yaml`):
+
+```yaml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: artds
+  labels:
+    app: artds
+    component: directory-server
+spec:
+  # Имя headless service для DNS discovery
+  serviceName: artds-hl
+
+  # Количество реплик
+  replicas: 2
+
+  # Селектор подов
+  selector:
+    matchLabels:
+      app: artds
+      component: directory-server
+
+  # Шаблон пода
+  template:
+    metadata:
+      labels:
+        app: artds
+        component: directory-server
+    spec:
+      # ====================================================
+      # Anti-affinity: принудительное размещение на разных worker нодах
+      # ====================================================
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - artds
+              # КРИТИЧНО: размещать поды на разных нодах
+              topologyKey: kubernetes.io/hostname
+
+      # ====================================================
+      # Init Container проверяет номер пода.
+      # Если это второй (считаем с 0) и более под,
+      # возвращаем ошибку. Под не будет стартовать и
+      # и будет постоянно перезагружаться.
+      # ====================================================
+      initContainers:
+        - name: init-permissions
+          image: busybox:1.37.0
+          command: ['sh', '-c']
+          args:
+            - |
+              NUM=$(echo $POD_NAME | cut -f2 -d'-')
+              if [ $NUM -gt 1 ]; then
+                echo "Number of replicas must be 1 or 2"
+                exit 1
+              fi
+              # Установка прав доступа
+              chmod 755 /data
+              echo "Initialization completed"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+      # ====================================================
+      # Основной контейнер 389ds
+      # ====================================================
+      containers:
+        - name: dirsrv
+          image: 389ds/dirsrv:3.1
+          imagePullPolicy: IfNotPresent
+
+          # Порты контейнера
+          ports:
+            - name: ldap
+              containerPort: 3389
+              protocol: TCP
+            - name: ldaps
+              containerPort: 3636
+              protocol: TCP
+
+          # Переменные окружения
+          env:
+            # Суффикс LDAP
+            - name: DS_SUFFIX_NAME
+              value: "dc=test,dc=local"
+
+            # Пароль Directory Manager из Secret
+            - name: DS_DM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_DM_PASSWORD
+
+            # Переиндексация при первом запуске
+            - name: DS_REINDEX
+              value: "True"
+
+            # Уровень логирования (опционально)
+            # - name: DS_ERRORLOG_LEVEL
+            #   value: "266354688"
+
+          # ====================================================
+          # Volume Mounts
+          # ====================================================
+          volumeMounts:
+            # Persistent data
+            - name: data
+              mountPath: /data
+
+            # TLS сертификаты от cert-manager
+            - name: tls-certs
+              mountPath: /data/tls
+              readOnly: true
+            - name: dirsrv-tls-ca
+              mountPath: '/data/tls/ca'
+              readOnly: true
+
+          # ====================================================
+          # Health Checks
+          # ====================================================
+          livenessProbe:
+            exec:
+              command:
+                - /usr/lib/dirsrv/dscontainer
+                - -H
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - /usr/lib/dirsrv/dscontainer
+                - -H
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # ====================================================
+          # Resource Limits
+          # ====================================================
+          resources:
+            requests:
+              cpu: "1"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2048Mi"
+
+      # ====================================================
+      # Volumes
+      # ====================================================
+      volumes:
+        # TLS сертификаты от cert-manager
+        - name: tls-certs
+          secret:
+            secretName: artds-tls-secret
+        
+        # Сертификат CA необходимо монтировать в другую точку файловой
+        # системы контейнера
+        - name: dirsrv-tls-ca
+          secret:
+            secretName: artds-tls-secret
+            items:
+            - key: ca.crt
+              path: ca.crt
+
+  # ====================================================
+  # VolumeClaimTemplates - автоматическое создание PVC для каждого пода
+  # Эквивалент Docker: -v /var/ldap:/data
+  # ====================================================
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: artds
+          component: storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: managed-nfs-storage
+        resources:
+          requests:
+            storage: 1Gi
+```
+
+Применяем манифест:
+
+```bash
+kubectl -n artldap apply -f manifests/03-statefulset.yaml
+```
+
+```txt
+statefulset.apps/artds created
+```
+
+Через некоторое время проверяем:
+
+```bash
+wtach kubectl -n artldap get all
+```
+
+Ждем когда запустятся оба пода:
+
+```txt
+NAME          READY   STATUS    RESTARTS   AGE
+pod/artds-0   1/1     Running   0          20s
+pod/artds-1   1/1     Running   0          30s
+
+NAME                     READY   AGE
+statefulset.apps/artds   0/2     30s
+```
+
+Смотрим логи подов:
+
+```bash
+kubectl -n artldap logs artds-0
+kubectl -n artldap logs artds-1
+```
+
+Важно проверить отсутствие сообщения об ошибках и наличие строки `INFO: 389-ds-container started.`.
+
+Создадим манифест с сервисами для доступа к кластеру (файл `manifests/04-services.yaml`)
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds
+  labels:
+    app: artds
+    component: directory-server
+  annotations:
+    # MetalLB IP assignment из указанного диапазона
+    metallb.io/loadBalancerIPs: 192.168.218.183
+spec:
+  type: LoadBalancer
+  # Распределение трафика между всеми подами
+  selector:
+    app: artds
+    component: directory-server
+
+  # Порты для внешнего доступа
+  ports:
+    # LDAP (без шифрования)
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+
+    # LDAPS (с TLS шифрованием)
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+
+---
+# ====================================================
+# Headless Service - для StatefulSet и репликации
+# Предоставляет стабильные DNS имена для каждого пода
+# ====================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-hl
+  labels:
+    app: artds
+    component: directory-server-headless
+spec:
+  # clusterIP: None делает service "headless"
+  # Kubernetes не назначает ClusterIP, вместо этого
+  # создает DNS записи для каждого пода
+  clusterIP: None
+
+  # Публикация всех подов в DNS, даже если они not ready
+  publishNotReadyAddresses: true
+
+  selector:
+    app: artds
+    component: directory-server
+
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+
+# DNS записи после создания:
+#
+# LoadBalancer Service (artds):
+# - artds.artldap.svc.cluster.local
+#   → Load balances to artds-0 and artds-1
+#
+# Headless Service (artds-hl):
+# - artds-hl.artldap.svc.cluster.local
+#   → Returns IPs of all pods
+# - artds-0.artds-hl.artldap.svc.cluster.local
+#   → Direct access to pod artds-0
+# - artds-1.artds-hl.artldap.svc.cluster.local
+#   → Direct access to pod artds-1
+
+# ====================================================
+# Опционально: Per-pod Services для debugging
+# ====================================================
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-0
+  labels:
+    app: artds
+    pod: artds-0
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.218.184
+spec:
+  type: LoadBalancer
+  selector:
+    app: artds
+    component: directory-server
+    statefulset.kubernetes.io/pod-name: artds-0
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-1
+  labels:
+    app: artds
+    pod: artds-1
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.218.185
+spec:
+  type: LoadBalancer
+  selector:
+    app: artds
+    component: directory-server
+    statefulset.kubernetes.io/pod-name: artds-1
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+```
+
+Применяем манифест:
+
+```bash
+kubectl -n artldap apply -f manifests/04-services.yaml
+```
+
+```txt
+service/artds created
+service/artds-hl created
+service/artds-0 created
+service/artds-1 created
+```
+
+Проверяем наличие сервисов:
+
+```bash
+kubectl -n artldap get svc
+```
+
+```txt
+NAME       TYPE           CLUSTER-IP      EXTERNAL-IP       PORT(S)                         AGE
+artds      LoadBalancer   10.233.20.134   192.168.218.183   3389:30350/TCP,3636:32650/TCP   4m10s
+artds-0    LoadBalancer   10.233.35.246   192.168.218.184   3389:30595/TCP,3636:30663/TCP   4m10s
+artds-1    LoadBalancer   10.233.16.189   192.168.218.185   3389:32024/TCP,3636:32611/TCP   4m10s
+artds-hl   ClusterIP      None            <none>            3389/TCP,3636/TCP               4m10s
+```
+
+и `EndpointSlices`:
+
+```bash
+kubectl -n artldap get endpointslices
+```
+
+```txt
+NAME             ADDRESSTYPE   PORTS       ENDPOINTS                    AGE
+artds-0-sgbcs    IPv4          3389,3636   10.233.71.79                 4m43s
+artds-1-hzr8w    IPv4          3389,3636   10.233.123.13                4m43s
+artds-hl-q8dkr   IPv4          3389,3636   10.233.71.79,10.233.123.13   4m43s
+artds-rns5s      IPv4          3389,3636   10.233.123.13,10.233.71.79   4m43s
+```
 
 ---
 
-## 🔧 Подход A: Ручная инициализация (аналог docker.md)
+## 🔧 Ручная инициализация (аналог docker.md)
 
 Этот подход полностью повторяет команды из [docker.md](../docker.md), но адаптирован для Kubernetes.
 
-### Преимущества
-- Полный контроль над процессом
-- Легче понять что происходит
-- Проще debug при проблемах
+### Шаг 1: Настройка формат логов
 
-### Недостатки
-- Требует ручного выполнения команд
-- Подвержен человеческим ошибкам
-- Не идемпотентный (нельзя просто запустить повторно)
+Настройка формата логов.
 
-### Шаг 1: Проверка готовности подов
+#### Access Log JSON
 
 ```bash
-# Ожидание готовности обоих подов
-kubectl wait --for=condition=Ready pod/artds-0 -n artldap --timeout=300s
-kubectl wait --for=condition=Ready pod/artds-1 -n artldap --timeout=300s
-
-# Проверка статуса
-kubectl get pods -n artldap
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging access set log-format json
 ```
 
-### Шаг 2: Проверка отсутствия backend
-
-Сначала на первом поде:
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging access set log-format json
+```
+
+```txt
+Successfully updated access log configuration
+```
+
+#### Error Log JSON
+
+```bash
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging error set log-format json
+```
+
+```bash
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging error set log-format json
+```
+
+```txt
+Successfully updated error log configuration
+```
+
+```bash
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
+```
+
+```bash
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
+```
+
+```txt
+Successfully updated error log configuration
+```
+
+#### Audit Log JSON
+
+Поддерживается начиная с версии 3.1.
+
+```bash
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging audit set log-format json
+```
+
+```bash
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
+    dsconf ldap://artds-0.artds-hl:3389 \
+    -D 'cn=Directory Manager' -w "password" \
+    logging audit set log-format json
+```
+
+```txt
+Successfully updated audit log configuration
+```
+
+### Шаг 3: Проверка отсутствия backend
+
+Сначала в первом поде:
+
+```bash
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     backend suffix list
 ```
 
-Затем на втором:
+Затем во втором:
+
 ```bash
-kubectl exec -it -n artldap artds-1 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     dsconf ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     backend suffix list
@@ -338,17 +768,19 @@ kubectl exec -it -n artldap artds-1 -- \
 ### Шаг 3: Создание backend
 
 На первом поде:
+
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     backend create --suffix "dc=test,dc=local" \
     --be-name userroot --create-suffix
 ```
 
-На втором поде:
+Во втором поде:
+
 ```bash
-kubectl exec -it -n artldap artds-1 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     dsconf ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     backend create --suffix "dc=test,dc=local" \
@@ -360,8 +792,9 @@ kubectl exec -it -n artldap artds-1 -- \
 ### Шаг 4: Включение репликации
 
 На первом поде (replica-id=1):
+
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     replication enable \
@@ -373,8 +806,9 @@ kubectl exec -it -n artldap artds-0 -- \
 ```
 
 На втором поде (replica-id=2):
+
 ```bash
-kubectl exec -it -n artldap artds-1 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     dsconf ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     replication enable \
@@ -390,8 +824,9 @@ kubectl exec -it -n artldap artds-1 -- \
 ### Шаг 5: Создание replication agreements
 
 Agreement от artds-0 к artds-1:
+
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     repl-agmt create \
@@ -405,9 +840,14 @@ kubectl exec -it -n artldap artds-0 -- \
     meTo1
 ```
 
+```txt
+Successfully created replication agreement "meTo1"
+```
+
 Agreement от artds-1 к artds-0:
+
 ```bash
-kubectl exec -it -n artldap artds-1 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     dsconf ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     repl-agmt create \
@@ -421,12 +861,16 @@ kubectl exec -it -n artldap artds-1 -- \
     meTo0
 ```
 
+```txt
+Successfully created replication agreement "meTo0"
+```
+
 ### Шаг 6: Инициализация репликации
 
 ⚠️ **Best Practice**: Инициализация ТОЛЬКО с artds-0 → artds-1
 
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     repl-agmt init meTo1 --suffix="dc=test,dc=local"
@@ -436,15 +880,19 @@ kubectl exec -it -n artldap artds-0 -- \
 
 ### Шаг 7: Проверка статуса репликации
 
+В первом поде.
+
 ```bash
-# Статус agreement на artds-0
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     dsconf ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     repl-agmt status --suffix "dc=test,dc=local" meTo1
+```
 
-# Статус agreement на artds-1
-kubectl exec -it -n artldap artds-1 -- \
+Во втором поде.
+
+```bash
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     dsconf ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     repl-agmt status --suffix "dc=test,dc=local" meTo0

@@ -13,7 +13,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: artds
-  namespace: artldap
   labels:
     app: artds
     component: directory-server
@@ -41,11 +40,6 @@ spec:
       port: 3636
       targetPort: 3636
 
-  # Session affinity для стабильности подключений
-  sessionAffinity: ClientIP
-  sessionAffinityConfig:
-    clientIP:
-      timeoutSeconds: 10800  # 3 часа
 ---
 # ====================================================
 # Headless Service - для StatefulSet и репликации
@@ -55,7 +49,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: artds-hl
-  namespace: artldap
   labels:
     app: artds
     component: directory-server-headless
@@ -105,55 +98,53 @@ spec:
 # Опционально: Per-pod Services для debugging
 # Раскомментируйте если нужен прямой внешний доступ к каждому поду
 # ====================================================
-# ---
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: artds-0
-#   namespace: artldap
-#   labels:
-#     app: artds
-#     pod: artds-0
-#   annotations:
-#     metallb.io/loadBalancerIPs: 192.168.218.184
-# spec:
-#   type: LoadBalancer
-#   selector:
-#     app: artds
-#     component: directory-server
-#     statefulset.kubernetes.io/pod-name: artds-0
-#   ports:
-#     - name: ldap-tcp
-#       protocol: TCP
-#       port: 3389
-#       targetPort: 3389
-#     - name: ldaps-tcp
-#       protocol: TCP
-#       port: 3636
-#       targetPort: 3636
-# ---
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: artds-1
-#   namespace: artldap
-#   labels:
-#     app: artds
-#     pod: artds-1
-#   annotations:
-#     metallb.io/loadBalancerIPs: 192.168.218.185
-# spec:
-#   type: LoadBalancer
-#   selector:
-#     app: artds
-#     component: directory-server
-#     statefulset.kubernetes.io/pod-name: artds-1
-#   ports:
-#     - name: ldap-tcp
-#       protocol: TCP
-#       port: 3389
-#       targetPort: 3389
-#     - name: ldaps-tcp
-#       protocol: TCP
-#       port: 3636
-#       targetPort: 3636
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-0
+  labels:
+    app: artds
+    pod: artds-0
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.218.184
+spec:
+  type: LoadBalancer
+  selector:
+    app: artds
+    component: directory-server
+    statefulset.kubernetes.io/pod-name: artds-0
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artds-1
+  labels:
+    app: artds
+    pod: artds-1
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.218.185
+spec:
+  type: LoadBalancer
+  selector:
+    app: artds
+    component: directory-server
+    statefulset.kubernetes.io/pod-name: artds-1
+  ports:
+    - name: ldap-tcp
+      protocol: TCP
+      port: 3389
+      targetPort: 3389
+    - name: ldaps-tcp
+      protocol: TCP
+      port: 3636
+      targetPort: 3636
