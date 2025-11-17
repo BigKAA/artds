@@ -1,0 +1,205 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ds389.fullname" . }}-init-0
+spec:
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ds389.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: {{ .Values.jobs.restartPolicy }}
+      containers:
+        - name: {{ include "ds389.fullname" . }}-init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [ '/bin/sh', '-ec' ]
+          args:
+            - |-
+              dsConf() {
+                dsconf ldap://$(SVC_NAME):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" "$@"
+              }
+              # Wait for the connection
+              TRIALS=0
+              until dsConf backend suffix list; do
+                sleep 1
+                TRIALS=$(( TRIALS + 1 ))
+                if [ $TRIALS -gt 60 ]; then echo 'Giving up' && exit 1; fi
+              done
+              # Create backend
+              if ! dsConf backend suffix list --suffix | grep -Fwq "$(SUFFIX_NAME)"; then
+                TRIALS=0
+                until dsConf backend create --suffix "$(SUFFIX_NAME)" --be-name userroot --create-suffix --create-entries; do
+                  sleep 1
+                  TRIALS=$(( TRIALS + 1 ))
+                  if [ $TRIALS -gt 30 ]; then echo 'Giving up' && exit 1; fi
+                done
+              else
+                echo 'Backend already present'
+              fi
+          env:
+            - name: SUFFIX_NAME
+              value: "{{ .Values.jobs.baseDn }}" # Name of the suffix to create
+            - name: SVC_NAME
+              value: {{ include "ds389.fullname" . -}} -0. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+            - name: SVC_PORT
+              value: {{ .Values.service.ports.ldap.targetPort | quote }}
+            - name: DS_BIND_DN
+              value: "cn=Directory Manager" # This is the directory manager password
+            - name: DS_REPL_DN
+              value: "cn=rmanager,cn=config" # This is the replica manager password
+            - name: DS_BIND_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_DM_PASSWORD
+            - name: DS_REPL_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_REPL_PASSWORD
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ds389.fullname" . }}-init-1
+spec:
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ds389.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: {{ .Values.jobs.restartPolicy }}
+      containers:
+        - name: {{ include "ds389.fullname" . }}-init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [ '/bin/sh', '-ec' ]
+          args:
+            - |-
+              dsConf() {
+                dsconf ldap://$(SVC_NAME_S):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" "$@"
+              }
+              # Wait for the connection
+              TRIALS=0
+              until dsConf backend suffix list; do
+                sleep 1
+                TRIALS=$(( TRIALS + 1 ))
+                if [ $TRIALS -gt 120 ]; then echo 'Giving up' && exit 1; fi
+              done
+              # Create backend
+              if ! dsConf backend suffix list --suffix | grep -Fwq "$(SUFFIX_NAME)"; then
+                TRIALS=0
+                until dsConf backend create --suffix "$(SUFFIX_NAME)" --be-name userroot --create-suffix --create-entries; do
+                  sleep 1
+                  TRIALS=$(( TRIALS + 1 ))
+                  if [ $TRIALS -gt 30 ]; then echo 'Giving up' && exit 1; fi
+                done
+              else
+                sleep 1
+                dsConf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" repl-agmt init meTo1 --suffix "$(SUFFIX_NAME)"
+                echo 'Backend already present'
+              fi
+          env:
+            - name: SUFFIX_NAME
+              value: "{{ .Values.jobs.baseDn }}" # Name of the suffix to create
+            - name: SVC_NAME_M
+              value: {{ include "ds389.fullname" . -}} -0. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+            - name: SVC_NAME_S
+              value: {{ include "ds389.fullname" . -}} -1. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+            - name: SVC_PORT
+              value: {{ .Values.service.ports.ldap.targetPort | quote }}
+            - name: DS_BIND_DN
+              value: "cn=Directory Manager" # This is the directory manager password
+            - name: DS_REPL_DN
+              value: "cn=rmanager,cn=config" # This is the replica manager password
+            - name: DS_BIND_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_DM_PASSWORD
+            - name: DS_REPL_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_REPL_PASSWORD
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ds389.fullname" . }}-replica-0
+spec:
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ds389.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: {{ .Values.jobs.restartPolicy }}
+      containers:
+        - name: {{ include "ds389.fullname" . }}-replica
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [ '/bin/sh', '-ec' ]
+          args:
+            - |-
+              dsConf() {
+                dsconf ldap://$(SVC_NAME_S):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" "$@"
+              }
+              # Wait for the connection
+              TRIALS=0
+              until dsConf backend suffix list; do
+                sleep 1
+                TRIALS=$(( TRIALS + 1 ))                if [ $TRIALS -gt 150 ]; then echo 'Giving up' && exit 1; fi
+              done
+              # Create replica
+              sleep 10
+              dsconf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" replication enable --suffix "$(SUFFIX_NAME)" --role=supplier --replica-id 1
+              dsconf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" replication create-manager --name rmanager --passwd "$(DS_REPL_PW)" --suffix "$(SUFFIX_NAME)"
+              dsconf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" repl-agmt create --suffix "$(SUFFIX_NAME)" --bind-dn "$(DS_REPL_DN)" --bind-passwd "$(DS_REPL_PW)" --bind-method SIMPLE --conn-protocol LDAP --host "$(SVC_NAME_S)" --port $(SVC_PORT) meTo1
+              sleep 5
+              dsconf ldap://$(SVC_NAME_S):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" replication enable --suffix "$(SUFFIX_NAME)" --role=supplier --replica-id 2
+              dsconf ldap://$(SVC_NAME_S):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" replication create-manager --name rmanager --passwd "$(DS_REPL_PW)" --suffix "$(SUFFIX_NAME)"
+              dsconf ldap://$(SVC_NAME_S):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" repl-agmt create --suffix "$(SUFFIX_NAME)" --bind-dn "$(DS_REPL_DN)" --bind-passwd "$(DS_REPL_PW)" --bind-method SIMPLE --conn-protocol LDAP --host "$(SVC_NAME_M)" --port $(SVC_PORT) meTo0
+              sleep 5
+              dsconf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" backend import userRoot {{ .Values.volumeClaim.config.path }}/ds389_config.ldiff
+              dsconf ldap://$(SVC_NAME_M):$(SVC_PORT) -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" repl-agmt init meTo1 --suffix "$(SUFFIX_NAME)"
+              echo 'Replica already present'
+              exit 0
+          env:
+            - name: SUFFIX_NAME
+              value: "{{ .Values.jobs.baseDn }}" # Name of the suffix to create
+            - name: SVC_NAME_M
+              value: {{ include "ds389.fullname" . -}} -0. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+            - name: SVC_NAME_S
+              value: {{ include "ds389.fullname" . -}} -1. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+            - name: SVC_PORT
+              value: {{ .Values.service.ports.ldap.targetPort | quote }}
+            - name: DS_BIND_DN
+              value: "cn=Directory Manager" # This is the directory manager password
+            - name: DS_REPL_DN
+              value: "cn=rmanager,cn=config" # This is the replica manager password
+            - name: DS_BIND_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_DM_PASSWORD
+            - name: DS_REPL_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                  key: DS_REPL_PASSWORD

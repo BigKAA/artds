@@ -1,10 +1,4 @@
-# RBAC (Role-Based Access Control) для Job инициализации
-# Необходим для того, чтобы Job мог взаимодействовать с Kubernetes API
-#
-# Используется для:
-# - Рестарта StatefulSet после изменения конфигурации плагинов
-# - Патча StatefulSet для триггера rolling update
-
+---
 # ====================================================
 # ServiceAccount - идентификатор для Job
 # ====================================================
@@ -12,7 +6,6 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: artds-init-sa
-  namespace: artldap
   labels:
     app: artds
     component: initialization
@@ -24,7 +17,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: artds-init-role
-  namespace: artldap
   labels:
     app: artds
     component: initialization
@@ -53,7 +45,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: artds-init-rolebinding
-  namespace: artldap
   labels:
     app: artds
     component: initialization
@@ -67,18 +58,4 @@ roleRef:
   kind: Role
   name: artds-init-role
   apiGroup: rbac.authorization.k8s.io
----
-# Принцип работы:
-#
-# 1. Job создается с serviceAccountName: artds-init-sa
-# 2. Kubernetes автоматически монтирует ServiceAccount token в под
-#    Путь: /var/run/secrets/kubernetes.io/serviceaccount/token
-# 3. Скрипт инициализации использует этот token для аутентификации
-# 4. Kubernetes API проверяет права через RoleBinding и Role
-# 5. Если права достаточны, операция (например, patch StatefulSet) выполняется
-#
-# Безопасность:
-# - Права ограничены только namespace artldap
-# - Доступ только к ресурсу StatefulSet (не к другим ресурсам)
-# - Разрешены только операции get, list, patch (не delete, create)
-# - Принцип минимальных привилегий (least privilege principle)
+

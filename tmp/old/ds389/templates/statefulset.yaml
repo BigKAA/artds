@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ds389.fullname" . }}
+  labels:
+    {{- include "ds389.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  serviceName: {{ include "ds389.fullname" . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ds389.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ds389.selectorLabels" . | nindent 8 }}
+    spec:
+      initContainers:
+        - name: init-ldap
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [ '/bin/sh', '-ec' ]
+          args:
+            - |-
+              cp {{ .Values.volumeClaim.initConfig.path }}/ds389_config.ldiff {{ .Values.volumeClaim.config.path }}
+              {{- range $elm := (.Values.jobs.init.people) }}
+                {{- if $elm.password }}
+              {{ printf "PASSWORD_%s_ENC=$(pwdhash -s SHA512 %s)" $elm.uid $elm.password }}
+              sed -i "s|=PASSWORD_{{- $elm.uid -}}=|{{ printf "$PASSWORD_%s_ENC" $elm.uid }}|g" {{ $.Values.volumeClaim.config.path }}/ds389_config.ldiff
+                {{- end }}
+              {{- end }}
+          volumeMounts:
+            - mountPath: {{ .Values.volumeClaim.initConfig.path }}
+              name: {{ .Values.volumeClaim.initConfig.name }}
+            - mountPath: {{ .Values.volumeClaim.config.path }}
+              name: {{ .Values.volumeClaim.config.name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ds389.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds}}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            {{- range $key, $value := .Values.service.ports }}
+            - name: {{ $key }}
+              protocol: TCP
+              containerPort: {{ $value.targetPort }}
+            {{- end }}
+          livenessProbe:
+            exec:
+              command:
+              - /usr/libexec/dirsrv/dscontainer
+              - -H
+            initialDelaySeconds: 30
+          readinessProbe:
+            exec:
+              command:
+              - /usr/libexec/dirsrv/dscontainer
+              - -H
+            initialDelaySeconds: 30
+          envFrom:
+            - secretRef:
+                name: {{ include "ds389.secretName" . }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: {{ .Values.volumeClaim.data.path }}
+              name: {{ .Values.volumeClaim.data.name }}
+            - mountPath: {{ .Values.volumeClaim.config.path }}
+              name: {{ .Values.volumeClaim.config.name }}
+      volumes:
+        - name: {{ .Values.volumeClaim.initConfig.name }}
+          configMap:
+            name: {{ .Values.volumeClaim.initConfig.configMap }}
+        - name: {{ .Values.volumeClaim.config.name }}
+          emptyDir:
+            sizeLimit: {{ .Values.volumeClaim.config.emptyDir.sizeLimit }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        labels:
+          {{- include "ds389.labels" . | nindent 10 }}
+        name: {{ .Values.volumeClaim.data.name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.volumeClaim.data.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.volumeClaim.data.storage }}

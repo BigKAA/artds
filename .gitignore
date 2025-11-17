@@ -1,6 +1,2 @@
-tmp/
-standalone/custom-schemas
-data/
-.serena/
-.claude/
-claudedocs/
+.vscode/
+

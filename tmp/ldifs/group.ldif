@@ -1,0 +1,8 @@
+version: 1
+
+dn: cn=group1,ou=groups,dc=system,dc=local
+objectClass: groupOfUniqueNames
+objectClass: top
+cn: group1
+uniqueMember: uid=art1,ou=people,dc=system,dc=local
+

@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "ds389.fullname" . }}-bk
+spec:
+  schedule: {{ .Values.cronJob.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: {{ .Values.cronJob.restartPolicy }}
+          containers:
+            - name: {{ include "ds389.fullname" . }}-bk
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /bin/sh
+                - -c
+                - dsconf ldap://$(SVC_NAME_M):3389 -D "$(DS_BIND_DN)" -w "$(DS_BIND_PW)" backup create
+              env:
+                - name: SVC_NAME_M
+                  value: {{ include "ds389.fullname" . -}} -0. {{- include "ds389.fullname" . }} # DNS record for the 389ds server
+                - name: DS_BIND_DN
+                  value: "cn=Directory Manager" # This is the directory manager password
+                - name: DS_BIND_PW
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "ds389.secretName" . }} # This is the secret containing the password
+                      key: DS_DM_PASSWORD

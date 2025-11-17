@@ -1,0 +1,13 @@
+version: 1
+
+dn: uid=art1,ou=people,dc=system,dc=local
+objectClass: inetOrgPerson
+objectClass: nsMemberOf
+objectClass: organizationalPerson
+objectClass: person
+objectClass: top
+cn: art1
+sn: art1
+memberOf: cn=group1,ou=groups,dc=system,dc=local
+uid: art1
+

@@ -1,30 +1,20 @@
 # ConfigMap со скриптом инициализации кластера
-# Содержит bash-скрипт для автоматической настройки:
-# - Backend creation
-# - Replication enablement
-# - Replication agreements
-# - Plugin configuration
-#
-# Этот скрипт аналогичен командам из docker.md, но автоматизирован
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: artds-init-script
-  namespace: artldap
   labels:
     app: artds
     component: initialization
 data:
   script-init.sh: |
-    #!/bin/bash
-
     # Функция для структурированного логирования
     logMsg() {
         echo "{\"date\":\"$(date "+%d/%m/%Y %T%z")\",\"facility\":\"$1\",\"message\":\"$2\"}"
     }
 
-    # Переменные окружения (устанавливаются Job)
+    # Переменные окружения (устанавливаются в манифесте Job)
     # DS_POD_NAME - имя StatefulSet (artds)
     # DS_HL_SVC_NAME - имя headless service (artds-hl)
     # DS_SVC_PORT - порт LDAP (3389)
@@ -40,6 +30,45 @@ data:
         exit 1
     fi
     logMsg INFO "Find $((PODS_COUNT + 1)) pods in DS cluster."
+
+    # ====================================================
+    # JSON LOGGING CONFIGURATION
+    # ====================================================
+    logMsg INFO "Настройка JSON логирования..."
+
+    for I in $(seq 0 $PODS_COUNT); do
+        POD_FQDN="${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}"
+
+        logMsg INFO "Настройка JSON логов на ${POD_FQDN}..."
+
+        # Access Log JSON
+        dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set log-format json > /dev/null 2>&1
+
+        dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging access set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
+
+        # Error Log JSON
+        dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set log-format json > /dev/null 2>&1
+
+        dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging error set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
+
+        # Audit Log JSON (если поддерживается версией)
+        dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+        ldap://${POD_FQDN}:${DS_SVC_PORT} \
+        logging audit set log-format json > /dev/null 2>&1 || \
+        logMsg WARN "Audit JSON не поддерживается этой версией 389ds"
+
+        logMsg INFO "JSON логирование настроено на ${POD_FQDN}"
+    done
+
+    logMsg INFO "JSON логирование успешно настроено на всех репликах"
 
     # ========================================
     # Инициализация backends в кластере
@@ -106,11 +135,22 @@ data:
                     --role="supplier" \
                     --replica-id=$((I + 1)) \
                     --bind-dn="cn=replication manager,cn=config" \
-                    --bind-passwd="${DS_REPL_PASSWORD}"
+                    --bind-passwd="${DS_REPL_PASSWORD}" > /dev/null 2>&1
+            else
+                logMsg INFO "Replication already enabled on pod ${DS_POD_NAME}-${I}"
+            fi
+        done
+        for I in $(seq 0 $PODS_COUNT); do
+            logMsg INFO "Create replication agreement on pod ${DS_POD_NAME}-${I}"
 
-                # Создание replication agreement
-                # Best Practice: только pod-0 инициализирует репликацию
-                if [ $I -eq 0 ]; then
+            # Создание replication agreement
+            # Best Practice: только pod-0 инициализирует репликацию
+            if [ $I -eq 0 ]; then
+                # Проверка существования agreement
+                if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                    -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+                    repl-agmt status --suffix "dc=test,dc=local" meTo1 > /dev/null 2>&1; then
+
                     # Agreement от pod-0 к pod-1 с инициализацией
                     logMsg INFO "Creating replication agreement from pod-0 to pod-1"
                     dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
@@ -124,8 +164,14 @@ data:
                         --bind-passwd="${DS_REPL_PASSWORD}" \
                         --bind-method=SIMPLE \
                         --init \
-                        meTo1
-                else
+                        meTo1 > /dev/null 2>&
+                fi
+            else
+                # Проверка существования agreement
+                if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+                    -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
+                    repl-agmt status --suffix "dc=test,dc=local" meTo0 > /dev/null 2>&1; then
+
                     # Agreement от pod-1 к pod-0 БЕЗ инициализации
                     logMsg INFO "Creating replication agreement from pod-1 to pod-0"
                     dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
@@ -138,10 +184,8 @@ data:
                         --bind-dn="cn=replication manager,cn=config" \
                         --bind-passwd="${DS_REPL_PASSWORD}" \
                         --bind-method=SIMPLE \
-                        meTo0
+                        meTo0 > /dev/null 2>&
                 fi
-            else
-                logMsg INFO "Replication already enabled on pod ${DS_POD_NAME}-${I}"
             fi
         done
     fi
@@ -155,13 +199,13 @@ data:
             -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
             -D "cn=Directory Manager" \
             -w "${DS_DM_PASSWORD}" \
-            -f /etc/openldap/init/init-config-modify.ldiff
+            -f /etc/openldap/init/init-config-modify.ldiff > /dev/null 2>&
 
         ldapadd -c \
             -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
             -D "cn=Directory Manager" \
             -w "${DS_DM_PASSWORD}" \
-            -f /etc/openldap/init/init-config.ldiff
+            -f /etc/openldap/init/init-config.ldiff > /dev/null 2>&
     fi
 
     # ========================================
@@ -204,45 +248,6 @@ data:
             logMsg INFO "Plugins already enabled on pod ${DS_POD_NAME}-${I}"
         fi
     done
-
-    # ====================================================
-    # JSON LOGGING CONFIGURATION
-    # ====================================================
-    logMsg INFO "Настройка JSON логирования..."
-
-    for I in $(seq 0 $PODS_COUNT); do
-      POD_FQDN="${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}"
-
-      logMsg INFO "Настройка JSON логов на ${POD_FQDN}..."
-
-      # Access Log JSON
-      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
-        ldap://${POD_FQDN}:${DS_SVC_PORT} \
-        logging access set log-format json > /dev/null 2>&1
-
-      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
-        ldap://${POD_FQDN}:${DS_SVC_PORT} \
-        logging access set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
-
-      # Error Log JSON
-      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
-        ldap://${POD_FQDN}:${DS_SVC_PORT} \
-        logging error set log-format json > /dev/null 2>&1
-
-      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
-        ldap://${POD_FQDN}:${DS_SVC_PORT} \
-        logging error set time-format "%Y-%m-%dT%H:%M:%S%z" > /dev/null 2>&1
-
-      # Audit Log JSON (если поддерживается версией)
-      dsconf -D "cn=Directory Manager" -w "${DS_DM_PASSWORD}" \
-        ldap://${POD_FQDN}:${DS_SVC_PORT} \
-        logging audit set log-format json 2>/dev/null || \
-        logMsg WARN "Audit JSON не поддерживается этой версией 389ds"
-
-      logMsg INFO "JSON логирование настроено на ${POD_FQDN}"
-    done
-
-    logMsg INFO "JSON логирование успешно настроено на всех репликах"
 
     # ========================================
     # Рестарт подов после изменения плагинов

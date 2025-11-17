@@ -1,0 +1,48 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: artds-init-nfra
+  labels:
+    app.kubernetes.io/name: artds
+    app.kubernetes.io/instance: 389ds
+    app.kubernetes.io/version: v3.1
+spec:
+  template:
+    spec:
+      serviceAccountName: artds-init-sa
+      restartPolicy: Never
+      volumes:
+        - name: infra
+          configMap:
+            name: artds-job-infra
+      containers:
+      - name: ds
+        image: 389ds/dirsrv:3.1
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        env:
+          - name: DS_HL_SVC_NAME
+            value: "artds-headless"
+          - name: DS_POD_NAME
+            value: "artds"
+          - name: DS_SVC_PORT
+            value: "3389"
+        envFrom:
+          - secretRef:
+              name: artds
+        volumeMounts:
+          - name: infra
+            mountPath: '/etc/openldap/init'
+        command: [ '/bin/bash', '-c' ]
+        args:
+          - |
+            ldapmodify -c -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" \
+            -w "${DS_DM_PASSWORD}" -f /etc/openldap/init/init-config-modify.ldiff
+            ldapadd -c -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} -D "cn=Directory Manager" \
+            -w "${DS_DM_PASSWORD}" -f /etc/openldap/init/init-config.ldiff

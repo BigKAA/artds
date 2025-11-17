@@ -1,25 +1,5 @@
 # Развертывание 389ds в Kubernetes
 
-Это руководство показывает развертывание кластера 389 Directory Server в Kubernetes с использованием манифестов. Материал является продолжением [docker.md](../docker.md) и демонстрирует эквиваленты Docker команд в Kubernetes.
-
----
-
-## 📋 Содержание
-
-- [Сравнение Docker vs Kubernetes](#сравнение-docker-vs-kubernetes)
-- [Требования](#требования)
-- [Проверка окружения](#проверка-окружения)
-- [Архитектура решения](#архитектура-решения)
-- [Развертывание: Шаг за шагом](#развертывание-шаг-за-шагом)
-- [Подход A: Ручная инициализация](#подход-a-ручная-инициализация-аналог-dockermd)
-- [Подход B: Автоматическая инициализация](#подход-b-автоматическая-инициализация-через-job)
-- [Инициализация плагинов](#инициализация-плагинов-два-подхода)
-- [Проверка работы кластера](#проверка-работы-кластера)
-- [Troubleshooting](#troubleshooting)
-- [Переход к Helm Chart](#переход-к-helm-chart)
-
----
-
 ## 🔄 Сравнение: Docker vs Kubernetes
 
 ### Сравнение команд
@@ -69,10 +49,15 @@ kubectl exec -it -n artldap artds-0 -- \
 ### Kubernetes Кластер
 
 - **Минимальная конфигурация**:
-  - 1 Сontrol нода
+  - **1 Сontrol нода.**
   - **Минимум 2 worker ноды** для размещения подов на разных нодах кластера.
 - **Версия Kubernetes**: 1.24+
 - **kubectl**: Настроен и подключен к кластеру
+- Установлен cert-manager.
+  - Добавлен cluster-issuer: `dev-ca-issuer`
+- Установлен MetalLB или другой контроллер для реализации сервисов типа `LoadBalancer`.
+
+[Пример установки минимального набора приложений](https://github.com/BigKAA/youtube/tree/master/1.31) в kubernetes.
 
 ---
 
@@ -96,11 +81,15 @@ kubectl get pods -n metallb
 kubectl get ipaddresspool -n metallb
 ```
 
-## 🚀 Развертывание: Шаг за шагом
+---
+
+## 🚀 Развертывание
 
 ### Установка приложения
 
 По аналогии с запуском приложения в обыкновенных контейнерах, сначала запустим поды с контейнерами 389ds.
+
+#### Namespace
 
 Создадим namespace:
 
@@ -111,6 +100,8 @@ kubectl create ns artldap
 ```txt
 namespace/artldap created
 ```
+
+#### Secret с паролями
 
 Первоначальный пароль администратора кластера и пользователя для репликаций поместим в secret (файл `manifests/01-secrets.yaml`):
 
@@ -141,6 +132,8 @@ kubectl -n artldap apply -f manifests/01-secrets.yaml
 ```txt
 secret/artds-admin-secret created
 ```
+
+#### Certificate
 
 Для создания сертификатов будем использовать cert-manager. Соответственно создадим `kind: Certificate` (файл `manifests/02-certificate.yaml`).
 
@@ -238,7 +231,9 @@ artds-admin-secret   Opaque              2      44s
 artds-tls-secret     kubernetes.io/tls   3      21s
 ```
 
-Манифест StatefullSet (файл `manifests/03-statefulset.yaml`):
+#### StatefullSet 389ds
+
+Манифест `StatefullSet` (файл `manifests/03-statefulset.yaml`):
 
 ```yaml
 ---
@@ -474,6 +469,8 @@ kubectl -n artldap logs artds-1
 
 Важно проверить отсутствие сообщения об ошибках и наличие строки `INFO: 389-ds-container started.`.
 
+#### Services
+
 Создадим манифест с сервисами для доступа к кластеру (файл `manifests/04-services.yaml`)
 
 ```yaml
@@ -659,7 +656,7 @@ artds-rns5s      IPv4          3389,3636   10.233.123.13,10.233.71.79   4m43s
 
 Этот подход полностью повторяет команды из [docker.md](../docker.md), но адаптирован для Kubernetes.
 
-### Шаг 1: Настройка формат логов
+### Настройка формат логов
 
 Настройка формата логов.
 
@@ -743,7 +740,7 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 Successfully updated audit log configuration
 ```
 
-### Шаг 3: Проверка отсутствия backend
+### Проверка отсутствия backend
 
 Сначала в первом поде:
 
@@ -765,7 +762,7 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 
 Должны получить: `No backends`
 
-### Шаг 3: Создание backend
+### Создание backend
 
 На первом поде:
 
@@ -789,7 +786,7 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 
 Ожидаемое сообщение: `The database was successfully created`
 
-### Шаг 4: Включение репликации
+### Включение репликации
 
 На первом поде (replica-id=1):
 
@@ -821,7 +818,7 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 
 Ожидаемое сообщение: `Replication successfully enabled for "dc=test,dc=local"`
 
-### Шаг 5: Создание replication agreements
+### Создание replication agreements
 
 Agreement от artds-0 к artds-1:
 
@@ -865,9 +862,9 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 Successfully created replication agreement "meTo0"
 ```
 
-### Шаг 6: Инициализация репликации
+### Инициализация репликации
 
-⚠️ **Best Practice**: Инициализация ТОЛЬКО с artds-0 → artds-1
+⚠️ Инициализация ТОЛЬКО с artds-0 → artds-1
 
 ```bash
 kubectl exec -it -n artldap artds-0 -c dirsrv -- \
@@ -878,7 +875,7 @@ kubectl exec -it -n artldap artds-0 -c dirsrv -- \
 
 Ожидаемое сообщение: `Agreement initialization started...`
 
-### Шаг 7: Проверка статуса репликации
+### Проверка статуса репликации
 
 В первом поде.
 
@@ -902,173 +899,404 @@ kubectl exec -it -n artldap artds-1 -c dirsrv -- \
 
 ---
 
-## 🤖 Подход B: Автоматическая инициализация через Job
+## 🤖 Автоматическая инициализация через Job
 
-Этот подход использует Kubernetes Job для полной автоматизации процесса инициализации.
+Конечно, можно конфигурировать LDAP кластер "вручную", как в предыдущем примере. Для упрощения, можно написать shell script, автоматизирующий этот процесс. Но мы используем kubernetes. А это значит, что максимум что мы должны делать - это каким либо образом поместить манифесты в кластер kubernetes. А дальше k8s должен развернуть приложение, согласно наших прожеланий в манифестах.
 
-### Преимущества
-- Полная автоматизация
-- Идемпотентность
-- Повторяемость
-- Отсутствие человеческого фактора
+Чаcть манифестов мы написали на предыдущем шаге. Осталось добавть `Job`, задача которого - произвести конфигурацию кластера 389ds. И добавить используемы в `Job` файлы в `СonfigMaps`.
 
-### Недостатки
-- Сложнее debug
-- Требует RBAC permissions
-- Меньше контроля над процессом
+Сам по себе `Job` - это манифест, который позволит запустить какое то приложение. Мы будем сами создавать это приложение. Писать будем на "админском" языке программирования: shell script.
 
-### Применение
+Для удобства чтения скрипта он вынесен в отдельный файл [job-script.sh](job-script.sh).
 
-Job уже должен быть развернут (последний шаг развертывания):
+Контейнер, используемый в `Job` - это контейнер 389ds (`389ds/dirsrv:3.1`). Он содержит все необходимые инструменты для работы с LDAP сервером.
 
-```bash
-kubectl apply -f 09-job-init.yaml
-```
+Мы не будем подробно разбирать этот скрипт. Просто обозначим основные действия, которые он выполняет.
 
-### Мониторинг выполнения
+- Проверка количества подов. Если это 3-й и более под, конфигурация пода не происходит и он не подключается к текцщему кластеру LDAP.
+- Настройка формата логов.
+- Инициализация backend.
+- Инициализация репликации.
+- Заполнение дерева LDAP начальными элементами. (Если эти данные есть в отдельном ConfigMap)
+- Включение и настройка плагинов и рестарт подов.
 
-```bash
-# Статус Job
-kubectl get job -n artldap
+### Прежде чем продолжить
 
-# Логи в реальном времени
-kubectl logs -n artldap job/artds-init -f
-
-# Детальная информация
-kubectl describe job artds-init -n artldap
-```
-
-### Повторный запуск Job
-
-Если нужно перезапустить инициализацию:
+Если вы установили и сконфигурировали приложение в ручном режиме, сначала удалите установленное приложение.
 
 ```bash
-# Удаление существующего Job
-kubectl delete job artds-init -n artldap
-
-# Применение заново
-kubectl apply -f 09-job-init.yaml
+kubectl delete ns artldap
 ```
 
-### Что делает Job автоматически
+Дождитесь удаления namespace. И создайте его снова.
 
-1. ✅ Ожидание готовности подов (max 180 секунд)
-2. ✅ Создание backends на artds-0 и artds-1
-3. ✅ Включение репликации на обоих подах
-4. ✅ Создание replication agreements (meTo1, meTo0)
-5. ✅ Инициализация репликации (только artds-0 → artds-1)
-6. ✅ Применение LDIF конфигурации (структура дерева)
-7. ✅ Включение плагинов (Retro Changelog, MemberOf)
-8. ✅ Рестарт подов (если плагины были изменены)
+```bash
+kubectl create ns artldap
+```
 
+Установите приложение:
+
+```bash
+kubectl -n artldap apply -f manifests
+```
+
+Конфигурация LDAP серверов, как говорилось ранее, будет производиться скриптом в `Job`.
+
+### Job RBAC
+
+Поскольку скрипт будет обращаться к kubernetes API для обновления (patch) манифестов. Необходимо настроить правида RBAC. (Файл [manifests-auto/05-rbac.yaml](manifests-auto/05-rbac.yaml))
+
+`Job` будет запускаться исползую следующий `ServiceAccount`:
+
+```yaml
 ---
-
-## 🔌 Инициализация плагинов: Два подхода
-
-### Плагины для включения
-
-1. **Retro Changelog**: Сохраняет все изменения в дереве LDAP
-   - ⚠️ Не рекомендуется для production (нагрузка и размер БД)
-   - Полезно для тестирования репликации
-
-2. **MemberOf**: Автоматическое отслеживание членства в группах
-   - Атрибут `memberOf` добавляется автоматически к пользователям
-   - Упрощает проверку принадлежности к группам
-
-### Подход A: Ручное включение
-
-**Преимущества**: Полный контроль, простота понимания
-**Недостатки**: Ручные операции на каждом поде, требует рестарта
-
-#### Шаг 1: Включение плагинов на artds-0
-
-```bash
-kubectl exec -it -n artldap artds-0 -- bash -c "cat > /tmp/plugins.ldif << 'EOF'
-dn: cn=Retro Changelog Plugin,cn=plugins,cn=config
-changetype: modify
-replace: nsslapd-pluginEnabled
-nsslapd-pluginEnabled: on
--
-
-dn: cn=MemberOf Plugin,cn=plugins,cn=config
-changetype: modify
-replace: nsslapd-pluginEnabled
-nsslapd-pluginEnabled: on
--
-replace: memberofgroupattr
-memberofgroupattr: uniqueMember
-EOF
-"
-
-kubectl exec -it -n artldap artds-0 -- \
-    ldapmodify -H ldap://artds-0.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    -f /tmp/plugins.ldif
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: artds-init-sa
+  labels:
+    app: artds
+    component: initialization
 ```
 
-#### Шаг 2: Включение плагинов на artds-1
+`Role`, разрешающая доступы к Kubernetes API:
 
-```bash
-kubectl exec -it -n artldap artds-1 -- bash -c "cat > /tmp/plugins.ldif << 'EOF'
-dn: cn=Retro Changelog Plugin,cn=plugins,cn=config
-changetype: modify
-replace: nsslapd-pluginEnabled
-nsslapd-pluginEnabled: on
--
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: artds-init-role
+  labels:
+    app: artds
+    component: initialization
+rules:
+  # Разрешение на чтение StatefulSet
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list"]
 
-dn: cn=MemberOf Plugin,cn=plugins,cn=config
-changetype: modify
-replace: nsslapd-pluginEnabled
-nsslapd-pluginEnabled: on
--
-replace: memberofgroupattr
-memberofgroupattr: uniqueMember
-EOF
-"
+  # Разрешение на изменение (patch) StatefulSet
+  # Используется для рестарта подов через аннотацию
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["patch"]
 
-kubectl exec -it -n artldap artds-1 -- \
-    ldapmodify -H ldap://artds-1.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    -f /tmp/plugins.ldif
+  # Опционально: разрешение на чтение подов
+  # Может быть полезно для проверки статуса
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ```
 
-#### Шаг 3: Рестарт подов
+И `RoleBinding`, связывающий `Role` и `ServiceAccount`:
 
-```bash
-# Рестарт StatefulSet (rolling restart)
-kubectl rollout restart statefulset artds -n artldap
-
-# Ожидание завершения рестарта
-kubectl rollout status statefulset artds -n artldap
-
-# Проверка подов
-kubectl get pods -n artldap
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: artds-init-rolebinding
+  labels:
+    app: artds
+    component: initialization
+subjects:
+  # ServiceAccount, которому предоставляются права
+  - kind: ServiceAccount
+    name: artds-init-sa
+    namespace: artldap
+roleRef:
+  # Role, права которой предоставляются
+  kind: Role
+  name: artds-init-role
+  apiGroup: rbac.authorization.k8s.io
 ```
 
-#### Шаг 4: Проверка включения плагинов
+Применим манифест:
 
 ```bash
-kubectl exec -it -n artldap artds-0 -- \
-    ldapsearch -H ldap://artds-0.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    -b "cn=plugins,cn=config" cn="MemberOf Plugin" \
-    | grep "nsslapd-pluginEnabled: on"
+kubectl -n artldap apply -f manifests-auto/05-rbac.yaml
 ```
 
-### Подход B: Автоматическое включение (через Job)
+```txt
+serviceaccount/artds-init-sa created
+role.rbac.authorization.k8s.io/artds-init-role created
+rolebinding.rbac.authorization.k8s.io/artds-init-rolebinding created
+```
 
-**Преимущества**: Полная автоматизация, идемпотентность
-**Недостатки**: Требует RBAC, сложнее debug
+### Job ConfigMaps
 
-Job автоматически:
-1. Проверяет статус плагинов на каждом поде
-2. Включает плагины если они выключены
-3. Патчит StatefulSet для триггера рестарта (через Kubernetes API)
-4. Логирует все операции в JSON формате
+#### Init script
 
-Включение плагинов происходит автоматически при запуске Job:
+В файле [manifests-auto/06-configmap-init.yaml](manifests-auto/06-configmap-init.yaml) находится `ConfigMap` с написанным нами скриптом.
+
+Применим этот манифест:
+
 ```bash
-kubectl apply -f 09-job-init.yaml
+kubectl -n artldap apply -f manifests-auto/06-configmap-init.yaml
+```
+
+```txt
+configmap/artds-init-script created
+```
+
+#### LDIF файлы с конфигурацией
+
+Конфигурация дерева LDAP будет в отдельном `ConfigMap`: файл [manifests-auto/07-configmap-infra.yaml](manifests-auto/07-configmap-infra.yaml). Файлы, находящиеся в этом файле используются в скрипте инициализации LDAP сервера.
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artds-infra-ldif
+  namespace: artldap
+  labels:
+    app: artds
+    component: ldap-structure
+data:
+  # =================================================================
+  # Модификация корневого суффикса для добавления ACI
+  # Эквивалент: ldapmodify -c -f /var/ldap/initConfigModify.ldif
+  # =================================================================
+  init-config-modify.ldiff: |
+    dn: dc=test,dc=local
+    changetype: modify
+    add: aci
+    aci: (targetattr ="*")(version 3.0;acl "Directory Administrators Group";allow (all) (groupdn = "ldap:///cn=Directory Administrators,dc=test,dc=local");)
+    -
+    add: aci
+    aci: (targetattr="ou || objectClass")(targetfilter="(objectClass=organizationalUnit)")(version 3.0; acl "Enable anyone ou read"; allow (read, search, compare)(userdn="ldap:///anyone");)
+
+  # =================================================================
+  # Создание базовой структуры LDAP дерева
+  # Эквивалент: ldapadd -c -f /var/ldap/init-config.ldiff
+  # =================================================================
+  init-config.ldiff: |
+    # Organizational Unit: Groups
+    dn: ou=Groups,dc=test,dc=local
+    objectClass: organizationalunit
+    objectClass: top
+    ou: Groups
+    aci: (targetattr="cn || member || gidNumber || description || objectClass")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable group_admin to manage groups"; allow (write, add, delete)(groupdn="ldap:///cn=group_admin,ou=permissions,dc=test,dc=local");)
+    aci: (targetattr="cn || member || memberUid || gidNumber || nsUniqueId || description || objectClass")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable anyone group read"; allow (read, search, compare)(userdn="ldap:///anyone");)
+    aci: (targetattr="member")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable group_modify to alter members"; allow (write)(groupdn="ldap:///cn=group_modify,ou=permissions,dc=test,dc=local");)
+
+    # Organizational Unit: People
+    dn: ou=People,dc=test,dc=local
+    objectClass: organizationalunit
+    objectClass: top
+    ou: People
+    aci: (targetattr="displayName || legalName || userPassword || nsSshPublicKey")(version 3.0; acl "Enable self partial modify"; allow (write)(userdn="ldap:///self");)
+    aci: (targetattr="legalName || telephoneNumber || mobile || sn")(targetfilter="(|(objectClass=nsPerson)(objectClass=inetOrgPerson))")(version 3.0; acl "Enable self legalname read"; allow (read, search, compare)(userdn="ldap:///self");)
+    aci: (targetattr="legalName || telephoneNumber")(targetfilter="(objectClass=nsPerson)")(version 3.0; acl "Enable user legalname read"; allow (read, search, compare)(groupdn="ldap:///cn=user_private_read,ou=permissions,dc=test,dc=local");)
+    aci: (targetattr="objectClass || description || nsUniqueId || uid || displayName || loginShell || uidNumber || gidNumber || gecos || homeDirectory || cn || memberOf || mail || nsSshPublicKey || nsAccountLock || userCertificate")(targetfilter="(objectClass=posixaccount)")(version 3.0; acl "Enable anyone user read"; allow (read, search, compare)(userdn="ldap:///anyone");)
+    aci: (targetattr="uid || description || displayName || loginShell || uidNumber || gidNumber || gecos || homeDirectory || cn || memberOf || mail || legalName || telephoneNumber || mobile")(targetfilter="(&(objectClass=nsPerson)(objectClass=nsAccount))")(version 3.0; acl "Enable user admin create"; allow (write, add, delete, read)(groupdn="ldap:///cn=user_admin,ou=permissions,dc=test,dc=local");)
+    aci: (targetattr="uid || description || displayName || loginShell || uidNumber || gidNumber || gecos || homeDirectory || cn || memberOf || mail || legalName || telephoneNumber || mobile")(targetfilter="(&(objectClass=nsPerson)(objectClass=nsAccount))")(version 3.0; acl "Enable user modify to change users"; allow (write, read)(groupdn="ldap:///cn=user_modify,ou=permissions,dc=test,dc=local");)
+    aci: (targetattr="userPassword || nsAccountLock || userCertificate || nsSshPublicKey")(targetfilter="(objectClass=nsAccount)")(version 3.0; acl "Enable user password reset"; allow (write, read)(groupdn="ldap:///cn=user_passwd_reset,ou=permissions,dc=test,dc=local");)
+
+    # Directory Administrators Group
+    dn: cn=Directory Administrators,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: Directory Administrators
+
+    # Organizational Unit: Dismissed Users
+    dn: ou=Dismissed,dc=test,dc=local
+    objectClass: organizationalunit
+    objectClass: top
+    ou: Dismissed
+    description: Dismissed users
+    aci: (targetattr="cn || member || gidNumber || description || objectClass")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable group_admin to manage groups"; allow (write, add, delete)(groupdn="ldap:///cn=group_admin,ou=permissions,dc=test,dc=local");)
+    aci: (targetattr="cn || member || memberUid || gidNumber || nsUniqueId || description || objectClass")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable anyone group read"; allow (read, search, compare)(userdn="ldap:///anyone");)
+    aci: (targetattr="member")(targetfilter="(objectClass=groupOfUniqueNames)")(version 3.0; acl "Enable group_modify to alter members"; allow (write)(groupdn="ldap:///cn=group_modify,ou=permissions,dc=test,dc=local");)
+
+    # Organizational Unit: Permissions
+    dn: ou=permissions,dc=test,dc=local
+    objectClass: organizationalunit
+    objectClass: top
+    ou: permissions
+
+    # Organizational Unit: Services
+    dn: ou=services,dc=test,dc=local
+    objectClass: organizationalunit
+    objectClass: top
+    ou: services
+    aci: (targetattr="objectClass || description || nsUniqueId || cn || memberOf || nsAccountLock")(targetfilter="(objectClass=netscapeServer)")(version 3.0; acl "Enable anyone service account read"; allow (read, search, compare)(userdn="ldap:///anyone");)
+
+    # Permission Groups
+    dn: cn=group_admin,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: group_admin
+
+    dn: cn=group_modify,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: group_modify
+
+    dn: cn=user_admin,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: user_admin
+
+    dn: cn=user_modify,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: user_modify
+
+    dn: cn=user_passwd_reset,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: user_passwd_reset
+
+    dn: cn=user_private_read,ou=permissions,dc=test,dc=local
+    objectClass: groupOfUniqueNames
+    objectClass: top
+    cn: user_private_read
+```
+
+Применим манифест:
+
+Применим этот манифест:
+
+```bash
+kubectl -n artldap apply -f manifests-auto/07-configmap-infra.yaml
+```
+
+```txt
+configmap/artds-infra-ldif created
+```
+
+### Job
+
+`Job` находится в файле [manifests-auto](08-job-init.yaml).
+
+```yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: artds-init
+  namespace: artldap
+  labels:
+    app: artds
+    component: initialization
+spec:
+  # Количество попыток перезапуска при неудаче
+  backoffLimit: 3
+
+  # TTL после завершения (автоудаление через 24 часа)
+  ttlSecondsAfterFinished: 86400
+
+  template:
+    metadata:
+      labels:
+        app: artds
+        component: initialization
+    spec:
+      # ServiceAccount для доступа к Kubernetes API
+      # (необходим для рестарта StatefulSet)
+      serviceAccountName: artds-init-sa
+
+      # Политика рестарта: никогда не перезапускать pod после завершения
+      restartPolicy: Never
+
+      # ====================================================
+      # Контейнер с инициализационным скриптом
+      # ====================================================
+      containers:
+        - name: init
+          image: 389ds/dirsrv:3.1
+          imagePullPolicy: IfNotPresent
+
+          # Команда: запуск bash скрипта из ConfigMap
+          command: ["/bin/bash"]
+          args: ["/scripts/script-init.sh"]
+
+          # ====================================================
+          # Переменные окружения для скрипта
+          # ====================================================
+          env:
+            # Имя StatefulSet
+            - name: DS_POD_NAME
+              value: "artds"
+
+            # Имя headless service
+            - name: DS_HL_SVC_NAME
+              value: "artds-hl"
+
+            # Порт LDAP
+            - name: DS_SVC_PORT
+              value: "3389"
+
+            # Суффикс LDAP
+            - name: DS_SUFFIX_NAME
+              value: "dc=test,dc=local"
+
+            # Количество реплик (будем использовать в helmChart)
+            - name: NUMBER_OF_REPLICAS
+              value: "2"
+
+            # Пароль Directory Manager
+            - name: DS_DM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_DM_PASSWORD
+
+            # Пароль для репликации
+            - name: DS_REPL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_REPL_PASSWORD
+
+          volumeMounts:
+            # Инициализационный скрипт
+            - name: init-script
+              mountPath: /scripts
+              readOnly: true
+
+            # LDIF файлы для структуры дерева
+            - name: infra-ldif
+              mountPath: /etc/openldap/init
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+
+      volumes:
+        # Скрипт инициализации из ConfigMap
+        - name: init-script
+          configMap:
+            name: artds-init-script
+            defaultMode: 0755  # Executable
+
+        # LDIF файлы из ConfigMap
+        - name: infra-ldif
+          configMap:
+            name: artds-infra-ldif
+```
+
+Применим манифест с `Job`:
+
+```bash
+kubectl -n artldap apply -f manifests-auto/08-job-init.yaml
+```
+
+Статус `Job`:
+
+```bash
+kubectl get job -n artldap
+```
+
+Логи в реальном времени:
+
+```bash
 kubectl logs -n artldap job/artds-init -f
 ```
 
@@ -1087,29 +1315,12 @@ kubectl describe pod artds-0 -n artldap
 kubectl describe pod artds-1 -n artldap
 ```
 
-### 2. Проверка репликации
-
-```bash
-# Статус репликации на artds-0
-kubectl exec -it -n artldap artds-0 -- \
-    dsconf ldap://artds-0.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    replication status --suffix "dc=test,dc=local"
-
-# Статус репликации на artds-1
-kubectl exec -it -n artldap artds-1 -- \
-    dsconf ldap://artds-1.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    replication status --suffix "dc=test,dc=local"
-```
-
-Ожидаемый вывод: `Replication Status: In Synchronization`
-
 ### 3. Тест репликации данных
 
 Добавим тестовую запись на artds-0:
+
 ```bash
-kubectl exec -it -n artldap artds-0 -- bash -c "cat > /tmp/test-user.ldif << 'EOF'
+kubectl exec -it -n artldap -c dirsrv artds-0 -- bash -c "cat > /tmp/test-user.ldif << EOF
 dn: uid=testuser,ou=People,dc=test,dc=local
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -1121,18 +1332,20 @@ uidNumber: 10001
 gidNumber: 10001
 homeDirectory: /home/testuser
 loginShell: /bin/bash
+
 EOF
 "
 
-kubectl exec -it -n artldap artds-0 -- \
+kubectl exec -it -n artldap artds-0 -c dirsrv -- \
     ldapadd -H ldap://artds-0.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     -f /tmp/test-user.ldif
 ```
 
 Проверим наличие на artds-1:
+
 ```bash
-kubectl exec -it -n artldap artds-1 -- \
+kubectl exec -it -n artldap artds-1 -c dirsrv -- \
     ldapsearch -H ldap://artds-1.artds-hl:3389 \
     -D 'cn=Directory Manager' -w "password" \
     -b "dc=test,dc=local" "(uid=testuser)"
@@ -1140,32 +1353,16 @@ kubectl exec -it -n artldap artds-1 -- \
 
 Если пользователь найден на artds-1 - репликация работает! ✅
 
-### 4. Просмотр JSON логов
-
-Проект использует JSON-формат для всех логов 389ds (Access, Error, Audit). Просмотр логов:
-
-```bash
-# Просмотр JSON логов пода artds-0
-kubectl logs -n artldap artds-0 -f | jq .
-
-# Просмотр только Error уровня
-kubectl logs -n artldap artds-0 | jq 'select(.level == "ERROR")'
-
-# Фильтрация Access Log по пользователю
-kubectl logs -n artldap artds-0 | jq 'select(.bind_dn | contains("uid=testuser"))'
-
-# Просмотр последних 50 записей с форматированием
-kubectl logs -n artldap artds-0 --tail=50 | jq .
-```
-
 ### 5. Проверка внешнего доступа
 
 Получение IP LoadBalancer:
+
 ```bash
 kubectl get svc artds -n artldap
 ```
 
 Тест подключения (с вашей локальной машины):
+
 ```bash
 # Замените <EXTERNAL-IP> на IP из предыдущей команды
 ldapsearch -H ldap://<EXTERNAL-IP>:3389 \
@@ -1173,605 +1370,3 @@ ldapsearch -H ldap://<EXTERNAL-IP>:3389 \
     -b "dc=test,dc=local" "(objectClass=*)"
 ```
 
-### 5. Проверка TLS/LDAPS
-
-```bash
-# Тест LDAPS подключения
-kubectl exec -it -n artldap artds-0 -- \
-    ldapsearch -H ldaps://artds-0.artds-hl:3636 \
-    -D 'cn=Directory Manager' -w "password" \
-    -b "dc=test,dc=local" "(objectClass=*)"
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Поды не запускаются
-
-**Симптом**: Pod в состоянии `Pending` или `CrashLoopBackOff`
-
-**Диагностика**:
-```bash
-kubectl describe pod artds-0 -n artldap
-kubectl logs -n artldap artds-0 --previous
-```
-
-**Возможные причины**:
-1. **Insufficient resources**:
-   - Worker ноды не имеют достаточно CPU/памяти
-   - Решение: Увеличить ресурсы нод или уменьшить requests в StatefulSet
-
-2. **PVC не создается**:
-   ```bash
-   kubectl get pvc -n artldap
-   kubectl describe pvc artds-data-artds-0 -n artldap
-   ```
-   - Проверить наличие StorageClass
-   - Проверить provisioner работает
-
-3. **Anti-affinity конфликт**:
-   - Только одна worker нода доступна
-   - Решение: Добавить worker ноды или временно удалить anti-affinity
-
-### Репликация не работает
-
-**Симптом**: Данные не реплицируются между подами
-
-**Диагностика**:
-```bash
-# Проверка agreement статуса
-kubectl exec -it -n artldap artds-0 -- \
-    dsconf ldap://artds-0.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    repl-agmt status --suffix "dc=test,dc=local" meTo1
-```
-
-**Возможные причины**:
-1. **Сетевая связность**:
-   - Поды не могут достучаться друг до друга
-   - Проверить: `kubectl exec -it -n artldap artds-0 -- ping artds-1.artds-hl`
-
-2. **Неверные credentials**:
-   - Пароль репликации неправильный
-   - Проверить Secret: `kubectl get secret artds-admin-secret -n artldap -o yaml`
-
----
-
-## 📝 JSON Logging Integration
-
-Начиная с этапа развертывания, кластер 389ds автоматически настроен для использования JSON-формата логирования. Это упрощает интеграцию с современными системами мониторинга и анализа логов.
-
-### Формат логов
-
-Все логи 389ds (Access, Error, Audit) конфигурируются в JSON-формате с ISO 8601 timestamp:
-
-```json
-{
-  "date": "2025-11-12 14:23:45+0000",
-  "utc_time": "2025-11-12T14:23:45.123456+00:00",
-  "level": "INFO",
-  "operation": "BIND",
-  "bind_dn": "uid=testuser,ou=People,dc=test,dc=local",
-  "client_ip": "192.168.1.100",
-  "conn_id": 123,
-  "op_id": 1,
-  "result": 0,
-  "etime": 0.001234
-}
-```
-
-### Конфигурация в ConfigMap
-
-JSON логирование настраивается автоматически init-job через ConfigMap ([05-configmap-init.yaml:209-246](kubernetes/05-configmap-init.yaml#L209-L246)):
-
-```bash
-# Для каждого пода настраивается:
-dsconf logging access set log-format json
-dsconf logging access set time-format "%Y-%m-%dT%H:%M:%S%z"
-dsconf logging error set log-format json
-dsconf logging error set time-format "%Y-%m-%dT%H:%M:%S%z"
-dsconf logging audit set log-format json  # Requires 389ds 3.1.1+
-```
-
-### Просмотр и анализ логов
-
-#### Базовый просмотр
-
-```bash
-# Просмотр всех логов с форматированием
-kubectl logs -n artldap artds-0 -f | jq .
-
-# Только последние 100 записей
-kubectl logs -n artldap artds-0 --tail=100 | jq .
-
-# Логи всех подов одновременно
-kubectl logs -n artldap -l app.kubernetes.io/name=artds -f | jq .
-```
-
-#### Фильтрация логов
-
-```bash
-# Только ошибки (Error level)
-kubectl logs -n artldap artds-0 | jq 'select(.level == "ERROR")'
-
-# Операции конкретного пользователя
-kubectl logs -n artldap artds-0 | jq 'select(.bind_dn | contains("uid=testuser"))'
-
-# BIND операции
-kubectl logs -n artldap artds-0 | jq 'select(.operation == "BIND")'
-
-# Медленные запросы (etime > 1 секунда)
-kubectl logs -n artldap artds-0 | jq 'select(.etime > 1.0)'
-
-# Ошибки аутентификации (result != 0)
-kubectl logs -n artldap artds-0 | jq 'select(.operation == "BIND" and .result != 0)'
-```
-
-#### Статистика и аналитика
-
-```bash
-# Топ-10 пользователей по количеству операций
-kubectl logs -n artldap artds-0 --tail=10000 | \
-  jq -r '.bind_dn' | sort | uniq -c | sort -rn | head -10
-
-# Средняя скорость выполнения операций
-kubectl logs -n artldap artds-0 --tail=1000 | \
-  jq -s 'map(.etime) | add/length'
-
-# Количество операций по типам
-kubectl logs -n artldap artds-0 --tail=5000 | \
-  jq -r '.operation' | sort | uniq -c | sort -rn
-```
-
-### Интеграция с системами логирования
-
-#### FluentBit Integration
-
-Проект включает пример конфигурации FluentBit DaemonSet для сбора и пересылки логов. См. [kubernetes/examples/fluentbit-json-logs.yaml](kubernetes/examples/fluentbit-json-logs.yaml).
-
-**Развертывание FluentBit:**
-
-```bash
-# Развернуть FluentBit DaemonSet
-kubectl apply -f kubernetes/examples/fluentbit-json-logs.yaml
-
-# Проверить статус
-kubectl get pods -n logging
-kubectl logs -n logging -l app=fluent-bit -f
-```
-
-**Возможности:**
-- Автоматический сбор логов всех `artds-*` подов
-- Парсинг JSON формата 389ds
-- Обогащение метаданными Kubernetes (pod, namespace, labels)
-- Вывод в stdout (можно настроить пересылку в Loki, Elasticsearch, CloudWatch)
-
-#### Prometheus/Loki Stack
-
-```yaml
-# Promtail config snippet для сбора JSON логов
-- job_name: artds
-  kubernetes_sd_configs:
-    - role: pod
-      namespaces:
-        names:
-          - artldap
-  relabel_configs:
-    - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-      regex: artds
-      action: keep
-  pipeline_stages:
-    - json:
-        expressions:
-          level: level
-          operation: operation
-          bind_dn: bind_dn
-          client_ip: client_ip
-    - labels:
-        level:
-        operation:
-```
-
-#### ELK Stack Integration
-
-```yaml
-# Filebeat config для Kubernetes
-filebeat.inputs:
-  - type: container
-    paths:
-      - /var/log/containers/artds-*.log
-    json.keys_under_root: true
-    json.add_error_key: true
-    processors:
-      - add_kubernetes_metadata:
-          host: ${NODE_NAME}
-          matchers:
-            - logs_path:
-                logs_path: "/var/log/containers/"
-```
-
-### Откат на стандартный формат
-
-Если необходимо вернуться к текстовому формату, отредактируйте [05-configmap-init.yaml](kubernetes/05-configmap-init.yaml):
-
-```bash
-# Закомментируйте секцию JSON LOGGING CONFIGURATION (строки 209-246)
-# Или измените log-format на 'default':
-dsconf logging access set log-format default
-dsconf logging error set log-format default
-```
-
-Затем пересоздайте ConfigMap и перезапустите init-job:
-
-```bash
-kubectl delete configmap artds-init -n artldap
-kubectl apply -f kubernetes/05-configmap-init.yaml
-kubectl delete job artds-init -n artldap
-kubectl apply -f kubernetes/09-job-init.yaml
-```
-
-3. **Backend не создан**:
-   - Проверить: `dsconf ... backend suffix list`
-
-### Job инициализации падает
-
-**Симптом**: Job в состоянии `Failed` или `Error`
-
-**Диагностика**:
-```bash
-kubectl logs -n artldap job/artds-init
-kubectl describe job artds-init -n artldap
-```
-
-**Возможные причины**:
-1. **RBAC permissions**:
-   - ServiceAccount не имеет прав
-   - Проверить: `kubectl auth can-i patch statefulsets --as=system:serviceaccount:artldap:artds-init-sa -n artldap`
-
-2. **Timeout waiting for pods**:
-   - Поды StatefulSet не стали Ready за 180 секунд
-   - Увеличить `initialWaitSeconds` в ConfigMap
-
-3. **Backend уже существует**:
-   - Повторный запуск Job после успешной инициализации
-   - Это нормально, скрипт пропускает существующие backends
-
-### Certificate не выдается
-
-**Симптом**: Certificate в состоянии `False` или `Pending`
-
-**Диагностика**:
-```bash
-kubectl get certificate artds-tls -n artldap
-kubectl describe certificate artds-tls -n artldap
-kubectl get certificaterequest -n artldap
-```
-
-**Возможные причины**:
-1. **ClusterIssuer не существует**:
-   ```bash
-   kubectl get clusterissuer dev-ca-issuer
-   ```
-
-2. **cert-manager не работает**:
-   ```bash
-   kubectl get pods -n cert-manager
-   ```
-
-3. **Неверная конфигурация Certificate**:
-   - Проверить DNS names, issuerRef
-
-### LoadBalancer Service не получает External IP
-
-**Симптом**: Service artds в состоянии `<pending>` для EXTERNAL-IP
-
-**Диагностика**:
-```bash
-kubectl get svc artds -n artldap
-kubectl describe svc artds -n artldap
-```
-
-**Возможные причины**:
-1. **MetalLB не установлен**:
-   ```bash
-   kubectl get pods -n metallb
-   ```
-
-2. **IP range не сконфигурирован**:
-   ```bash
-   kubectl get ipaddresspool -n metallb
-   ```
-
-3. **IP уже используется**:
-   - Указанный IP (192.168.218.183) занят другим сервисом
-
-### Плагины не включаются
-
-**Симптом**: После применения ldapmodify плагины остаются выключены
-
-**Диагностика**:
-```bash
-kubectl exec -it -n artldap artds-0 -- \
-    ldapsearch -H ldap://artds-0.artds-hl:3389 \
-    -D 'cn=Directory Manager' -w "password" \
-    -b "cn=plugins,cn=config" cn="MemberOf Plugin"
-```
-
-**Решение**:
-- Плагины требуют рестарта сервера после включения
-- Выполнить: `kubectl rollout restart statefulset artds -n artldap`
-
----
-
-## 🎓 Переход к Helm Chart
-
-### Проблемы текущего подхода
-
-1. **Дублирование конфигурации**:
-   - Один и тот же суффикс `dc=test,dc=local` повторяется в 5+ файлах
-   - Пароли дублируются в Secret и переменных окружения
-   - IP адреса LoadBalancer hardcoded в манифестах
-
-2. **Сложность управления параметрами**:
-   - Для изменения одного параметра нужно редактировать несколько файлов
-   - Нет централизованной конфигурации
-   - Легко допустить ошибку и создать несоответствия
-
-3. **Отсутствие версионирования**:
-   - Нет четкой версии "конфигурации кластера"
-   - Сложно откатиться к предыдущему состоянию
-   - Нет истории изменений
-
-4. **Нет переиспользования**:
-   - Каждый раз копируем и редактируем манифесты
-   - Сложно поддерживать несколько окружений (dev, test, prod)
-   - Нет шаблонизации для разных конфигураций
-
-5. **Управление namespace**:
-   - В plain Kubernetes нужен отдельный манифест `01-namespace.yaml`
-   - При смене namespace нужно редактировать все манифесты с hardcoded namespace
-   - В Helm namespace указывается при установке: `helm install -n <namespace> --create-namespace`
-
-### Как Helm решает эти проблемы
-
-```yaml
-# values.yaml (единый источник конфигурации)
-replicaCount: 2
-image:
-  repository: 389ds/dirsrv
-  tag: "3.1"
-
-ds:
-  suffix: "dc=test,dc=local"
-  adminPassword: "password"
-  replPassword: "password"
-
-services:
-  main:
-    type: LoadBalancer
-    annotations:
-      metallb.io/loadBalancerIPs: 192.168.218.183
-```
-
-**Преимущества**:
-- ✅ Параметры в одном месте (`values.yaml`)
-- ✅ Версионирование через Chart.yaml
-- ✅ Переиспользование через templates
-- ✅ Управление релизами (install, upgrade, rollback)
-- ✅ Поддержка multiple environments
-- ✅ Встроенное тестирование (`helm lint`, `helm test`)
-
-### Следующий этап
-
-Перейдите к изучению [../artds/README.md](../artds/README.md) для:
-1. Понимания как преобразовать манифесты в Helm templates
-2. Изучения best practices Helm chart разработки
-3. Production-ready конфигурации с hooks и helpers
-4. Автоматизации через ArgoCD GitOps
-
----
-
-## 📊 Мониторинг с Prometheus
-
-### Архитектура мониторинга
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Namespace: artldap                                 │
-│                                                     │
-│  ┌─────────────────────┐  ┌─────────────────────┐  │
-│  │ Pod: artds-0        │  │ Pod: artds-1        │  │
-│  │                     │  │                     │  │
-│  │ ┌─────────────┐     │  │ ┌─────────────┐     │  │
-│  │ │ dirsrv      │     │  │ │ dirsrv      │     │  │
-│  │ │ :3389       │     │  │ │ :3389       │     │  │
-│  │ └─────────────┘     │  │ └─────────────┘     │  │
-│  │         │           │  │         │           │  │
-│  │         │ localhost │  │         │ localhost │  │
-│  │         ▼           │  │         ▼           │  │
-│  │ ┌─────────────┐     │  │ ┌─────────────┐     │  │
-│  │ │ exporter    │     │  │ │ exporter    │     │  │
-│  │ │ :9313       │     │  │ │ :9313       │     │  │
-│  │ └──────┬──────┘     │  │ └──────┬──────┘     │  │
-│  └────────┼────────────┘  └────────┼────────────┘  │
-│           │                        │               │
-│           └────────┬───────────────┘               │
-│                    │                               │
-│           ┌────────▼────────┐                      │
-│           │ Service: artds- │                      │
-│           │ metrics (9313)  │                      │
-│           └────────┬────────┘                      │
-│                    │                               │
-│           ┌────────▼────────────┐                  │
-│           │ ServiceMonitor      │                  │
-│           │ (artds-metrics)     │                  │
-│           └────────┬────────────┘                  │
-└────────────────────┼───────────────────────────────┘
-                     │
-         ┌───────────▼────────────┐
-         │ Namespace: monitoring  │
-         │                        │
-         │  ┌──────────────────┐  │
-         │  │ Prometheus       │  │
-         │  │ Operator         │  │
-         │  └────────┬─────────┘  │
-         │           │            │
-         │           ▼            │
-         │  ┌──────────────────┐  │
-         │  │ Grafana          │  │
-         │  │ :3000            │  │
-         │  └──────────────────┘  │
-         └────────────────────────┘
-```
-
-### Деплой мониторинга
-
-#### Вариант 1: С Prometheus Operator
-
-```bash
-# 1. Применить манифесты с экспортером
-kubectl apply -f kubernetes/12-configmap-exporter.yaml
-kubectl apply -f kubernetes/07-statefulset.yaml
-kubectl apply -f kubernetes/13-service-metrics.yaml
-kubectl apply -f kubernetes/14-servicemonitor.yaml
-
-# 2. Проверить статус
-kubectl get pods -n artldap
-kubectl logs -n artldap artds-0 -c exporter
-
-# 3. Проверить метрики напрямую
-kubectl port-forward -n artldap artds-0 9313:9313
-curl http://localhost:9313/metrics | grep ldap_
-```
-
-#### Вариант 2: Ручная конфигурация Prometheus
-
-Если Prometheus Operator не установлен, используйте manual конфигурацию:
-
-```bash
-# 1. Создать namespace для мониторинга
-kubectl create namespace monitoring
-
-# 2. Деплой Prometheus (пример в kubernetes/examples/prometheus-manual.yaml)
-kubectl apply -f kubernetes/examples/prometheus-manual.yaml
-
-# 3. Получить LoadBalancer IP
-kubectl get svc -n monitoring prometheus
-
-# 4. Открыть Prometheus UI
-# http://<PROMETHEUS_IP>:9090
-```
-
-### Проверка метрик
-
-#### Проверить доступность endpoints
-
-```bash
-# Проверить Service
-kubectl get svc -n artldap artds-metrics
-kubectl get endpoints -n artldap artds-metrics
-
-# Должно показать оба пода:
-# artds-0.artds-metrics.artldap.svc.cluster.local:9313
-# artds-1.artds-metrics.artldap.svc.cluster.local:9313
-```
-
-#### Проверить ServiceMonitor
-
-```bash
-kubectl get servicemonitor -n artldap artds-metrics -o yaml
-```
-
-#### Проверить в Prometheus
-
-```bash
-# Port-forward к Prometheus
-kubectl port-forward -n monitoring svc/prometheus 9090:9090
-
-# Открыть UI: http://localhost:9090
-# Проверить targets: Status → Targets → 389ds-artldap
-```
-
-### Ключевые PromQL запросы
-
-```promql
-# Текущие подключения по подам
-ldap_connections_current{namespace="artldap"}
-
-# Rate операций поиска за 5 минут
-rate(ldap_operations_total{operation="search"}[5m])
-
-# Hit rate кэша записей
-rate(ldap_backend_entry_cache_hits[5m]) / rate(ldap_backend_entry_cache_tries[5m])
-
-# Количество записей в backend
-ldap_entries_total{namespace="artldap"}
-```
-
-### Troubleshooting мониторинга
-
-#### Exporter не запускается
-
-```bash
-# Проверить логи
-kubectl logs -n artldap artds-0 -c exporter
-
-# Проверить конфигурацию
-kubectl get cm -n artldap artds-exporter-config -o yaml
-
-# Проверить секреты
-kubectl get secret -n artldap artds-admin-secret -o yaml
-```
-
-#### Prometheus не scrape-ит метрики
-
-```bash
-# Проверить ServiceMonitor
-kubectl describe servicemonitor -n artldap artds-metrics
-
-# Проверить labels на Service
-kubectl get svc -n artldap artds-metrics --show-labels
-
-# Проверить Prometheus логи
-kubectl logs -n monitoring -l app=prometheus
-```
-
-#### Метрики возвращают ошибки
-
-```bash
-# Подключиться к поду экспортера
-kubectl exec -it -n artldap artds-0 -c exporter -- sh
-
-# Проверить LDAP подключение
-ldapsearch -x -H ldap://localhost:3389 -b "cn=monitor" -s base
-
-# Проверить bind credentials
-ldapsearch -x -H ldap://localhost:3389 \
-  -D "cn=Directory Manager" -w "$BIND_PASSWORD" \
-  -b "cn=monitor" -s base
-```
-
----
-
-## 📚 Дополнительные материалы
-
-### Kubernetes Concepts
-- [StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
-- [Services](https://kubernetes.io/docs/concepts/services-networking/service/)
-- [PersistentVolumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
-- [Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-- [RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
-
-### 389ds Documentation
-- [Multi-Supplier Replication](https://www.port389.org/docs/389ds/howto/howto-multisupplierreplication.html)
-- [Plugin Configuration](https://www.port389.org/docs/389ds/design/plugins.html)
-
-### cert-manager
-- [Documentation](https://cert-manager.io/docs/)
-
----
-
-**Статус**: Готово к использованию
-**Версия**: 1.0
-**Последнее обновление**: 2025-01-12

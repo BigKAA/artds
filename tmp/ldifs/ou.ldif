@@ -1,0 +1,32 @@
+version: 1
+
+dn: ou=groups,dc=system,dc=local
+objectClass: organizationalunit
+objectClass: top
+ou: groups
+aci: (targetattr="cn || member || gidNumber || description || objectClass")(
+ targetfilter="(objectClass=groupOfNames)")(version 3.0; acl "Enable group_a
+ dmin to manage groups"; allow (write, add, delete)(groupdn="ldap:///cn=grou
+ p_admin,ou=permissions,dc=system,dc=local");)
+aci: (targetattr="cn || member || memberUid || gidNumber || nsUniqueId || de
+ scription || objectClass")(targetfilter="(objectClass=groupOfNames)")(versi
+ on 3.0; acl "Enable anyone group read"; allow (read, search, compare)(userd
+ n="ldap:///anyone");)
+aci: (targetattr="member")(targetfilter="(objectClass=groupOfNames)")(versio
+ n 3.0; acl "Enable group_modify to alter members"; allow (write)(groupdn="l
+ dap:///cn=group_modify,ou=permissions,dc=system,dc=local");)
+
+dn: cn=demo_group,ou=Groups,dc=system,dc=local
+objectClass: groupOfNames
+objectClass: nsMemberOf
+objectClass: posixGroup
+objectClass: top
+cn: demo_group
+gidNumber: 99999
+
+dn: cn=group1,ou=groups,dc=system,dc=local
+objectClass: groupOfUniqueNames
+objectClass: top
+cn: group1
+uniqueMember: uid=art1,ou=people,dc=system,dc=local
+

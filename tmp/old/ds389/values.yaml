@@ -1,0 +1,104 @@
+# Default values for ds389.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+replicaCount: 2
+
+fullnameOverride: ""
+
+image:
+  repository: docker.smart.mos.ru/library/khsv/389ds
+  pullPolicy: IfNotPresent
+  tag: "v1.4.4.1-c"
+
+terminationGracePeriodSeconds: 300
+
+volumeClaim:
+  data:
+    name: data
+    storage: 5Gi
+    path: "/data"
+    storageClass: local-path
+  initConfig:
+    name: init-config-volume
+    path: "/opt/conf"
+    configMap: ds389-config
+  config:
+    name: config-volume
+    path: "/var/lib/dirsrv/ds389-0/ldif"
+    emptyDir:
+      sizeLimit: "50Mi"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  clusterIP: None
+  ports: 
+    ldap:
+      port: 3389
+      targetPort: 3389
+    ldaps:
+      port: 3636
+      targetPort: 3636
+
+secret:
+  defaultPassword:
+    dm: ""
+    repl: ""
+  
+jobs:
+  restartPolicy: OnFailure
+  baseDn: "dc=example,dc=loc"
+  init:
+    people:
+      # - name: "Test User"
+      #   uid: "test_user"
+    groups:
+      # - dn: "ou=test_group"
+      #   type: "organizationalUnit"
+      # - dn: "cn=test_admin,ou=test_group"
+      #   type: "groupOfUniqueNames"
+
+cronJob:
+  schedule: "0 0 * * *"
+  restartPolicy: OnFailure
+
+
+imagePullSecrets: []
+
+podAnnotations: {}
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
