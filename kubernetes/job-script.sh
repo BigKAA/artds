@@ -183,19 +183,19 @@ fi
 # ========================================
 # Применение LDIF конфигурации (если включено)
 # ========================================
-if [ -f /etc/openldap/init/init-config-modify.ldiff ]; then
+if [ -f /etc/openldap/init/init-config-modify.ldif ]; then
     logMsg INFO "Applying LDIF configuration modifications"
     ldapmodify -c \
         -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
         -D "cn=Directory Manager" \
         -w "${DS_DM_PASSWORD}" \
-        -f /etc/openldap/init/init-config-modify.ldiff > /dev/null 2>&
+        -f /etc/openldap/init/init-config-modify.ldif > /dev/null 2>&
 
     ldapadd -c \
         -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
         -D "cn=Directory Manager" \
         -w "${DS_DM_PASSWORD}" \
-        -f /etc/openldap/init/init-config.ldiff > /dev/null 2>&
+        -f /etc/openldap/init/init-config.ldif > /dev/null 2>&
 fi
 
 # ========================================

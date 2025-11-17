@@ -16,7 +16,7 @@ data:
   # Модификация корневого суффикса для добавления ACI
   # Эквивалент: ldapmodify -c -f /var/ldap/initConfigModify.ldif
   # =================================================================
-  init-config-modify.ldiff: |
+  init-config-modify.ldif: |
     dn: dc=test,dc=local
     changetype: modify
     add: aci
@@ -29,7 +29,7 @@ data:
   # Создание базовой структуры LDAP дерева
   # Эквивалент: ldapadd -c -f /var/ldap/init-config.ldiff
   # =================================================================
-  init-config.ldiff: |
+  init-config.ldif: |
     # Organizational Unit: Groups
     dn: ou=Groups,dc=test,dc=local
     objectClass: organizationalunit
