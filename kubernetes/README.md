@@ -337,6 +337,12 @@ spec:
                 secretKeyRef:
                   name: artds-admin-secret
                   key: DS_DM_PASSWORD
+            
+            - name: DS_REPL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: artds-admin-secret
+                  key: DS_REPL_PASSWORD
 
             # Переиндексация при первом запуске
             - name: DS_REINDEX
