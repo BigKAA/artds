@@ -27,6 +27,20 @@ logMsg INFO "Find $((PODS_COUNT + 1)) pods in DS cluster."
 logMsg INFO "Настройка JSON логирования..."
 
 for I in $(seq 0 $PODS_COUNT); do
+    # Ожидание готовности пода (max 180 секунд)
+    TRIALS=0
+    until dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
+        -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
+        backend suffix list > /dev/null 2>&1; do
+        sleep 1
+        TRIALS=$(( TRIALS + 1 ))
+        if [ $TRIALS -gt 180 ]; then
+            logMsg ERROR "Timeout waiting for pod ${DS_POD_NAME}-${I}"
+            exit 1
+        fi
+    done
+    logMsg INFO "Connected to ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
+
     POD_FQDN="${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}"
 
     logMsg INFO "Настройка JSON логов на ${POD_FQDN}..."
@@ -65,20 +79,6 @@ logMsg INFO "JSON логирование успешно настроено на 
 # ========================================
 for I in $(seq 0 $PODS_COUNT); do
     logMsg INFO "Try to create backend at: ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
-
-    # Ожидание готовности пода (max 180 секунд)
-    TRIALS=0
-    until dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
-        -D 'cn=Directory Manager' -w "${DS_DM_PASSWORD}" \
-        backend suffix list > /dev/null 2>&1; do
-        sleep 1
-        TRIALS=$(( TRIALS + 1 ))
-        if [ $TRIALS -gt 180 ]; then
-            logMsg ERROR "Timeout waiting for pod ${DS_POD_NAME}-${I}"
-            exit 1
-        fi
-    done
-    logMsg INFO "Connected to ${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT}"
 
     # Проверка существования backend
     if ! dsconf ldap://${DS_POD_NAME}-${I}.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
@@ -154,7 +154,7 @@ if [ $PODS_COUNT -gt 0 ]; then
                     --bind-passwd="${DS_REPL_PASSWORD}" \
                     --bind-method=SIMPLE \
                     --init \
-                    meTo1 > /dev/null 2>&
+                    meTo1 > /dev/null 2>&1
             fi
         else
             # Проверка существования agreement
@@ -174,7 +174,7 @@ if [ $PODS_COUNT -gt 0 ]; then
                     --bind-dn="cn=replication manager,cn=config" \
                     --bind-passwd="${DS_REPL_PASSWORD}" \
                     --bind-method=SIMPLE \
-                    meTo0 > /dev/null 2>&
+                    meTo0 > /dev/null 2>&1
             fi
         fi
     done
@@ -189,13 +189,13 @@ if [ -f /etc/openldap/init/init-config-modify.ldif ]; then
         -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
         -D "cn=Directory Manager" \
         -w "${DS_DM_PASSWORD}" \
-        -f /etc/openldap/init/init-config-modify.ldif > /dev/null 2>&
+        -f /etc/openldap/init/init-config-modify.ldif > /dev/null 2>&1
 
     ldapadd -c \
         -H ldap://${DS_POD_NAME}-0.${DS_HL_SVC_NAME}:${DS_SVC_PORT} \
         -D "cn=Directory Manager" \
         -w "${DS_DM_PASSWORD}" \
-        -f /etc/openldap/init/init-config.ldif > /dev/null 2>&
+        -f /etc/openldap/init/init-config.ldif > /dev/null 2>&1
 fi
 
 # ========================================
