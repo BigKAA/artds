@@ -13,7 +13,7 @@ data:
 
     # Вычисляет количество подов
     PODS_COUNT=$((NUMBER_OF_REPLICAS - 1)) 
-    if [ $PODS_COUNT -le 0 ]; then
+    if [ $PODS_COUNT -lt 0 ]; then
         logMsg ERROR "No pods found in DS cluster."
         exit 1
     fi
