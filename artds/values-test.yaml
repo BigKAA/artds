@@ -76,6 +76,9 @@ ssl:
       name: dev-ca-issuer
       kind: ClusterIssuer
       group: cert-manager.io
+  # Дополнительные 
+  dnsNames: []
+  ipAddresses: []
 
 services:
   main:

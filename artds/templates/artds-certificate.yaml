@@ -9,6 +9,9 @@ spec:
   secretName: {{ include "artds.fullname" . }}-tls
   {{- toYaml .Values.ssl.certManager | nindent 2}}
   dnsNames:
+    {{- if .Values.ssl.dnsNames }}
+    {{- toYaml .Values.ssl.dnsNames | nindent 4 }}
+    {{- end }}
     - {{ include "artds.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
     - {{ include "artds.fullname" . }}.{{ .Release.Namespace }}.svc
     - {{ include "artds.fullname" . }}.{{ .Release.Namespace }}
@@ -24,4 +27,8 @@ spec:
     - {{ include "artds.fullname" . }}-1.{{ include "artds.fullname" . }}-headless
     {{- end }}
     - localhost
+  {{- if .Values.ssl.ipAddresses }}
+  ipAddresses:
+    {{- toYaml .Values.ssl.ipAddresses | nindent 4 }}
+  {{- end }}
 {{- end }}
